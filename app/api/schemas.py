@@ -26,12 +26,19 @@ class TaskListResponse(BaseModel):
 
 
 class TaskCreateRequest(BaseModel):
-    title: str = Field(min_length=1)
+    title: Optional[str] = None
     source_url: str = Field(min_length=1)
     target_path: Optional[str] = None
     target_type: Optional[str] = None
     season: Optional[int] = None
     episode: Optional[int] = None
+    language: Optional[str] = None
+    file_id: Optional[int] = None
+
+
+class FileSubtitleDownloadRequest(BaseModel):
+    source_url: str = Field(min_length=1)
+    title: Optional[str] = None
     language: Optional[str] = None
 
 

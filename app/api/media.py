@@ -4,15 +4,17 @@ from fastapi import APIRouter, BackgroundTasks, Body, Depends, Query
 from fastapi.responses import FileResponse
 from sqlmodel import Session
 
-from ..db.models import MediaPath, ScannedFile
+from ..db.models import MediaPath, ScannedFile, SubtitleTask
 from ..db.session import get_session
 from ..services.media_service import MediaService, global_task_status
 from ..services.metadata_service import MetadataService
 from ..services.subtitle_inspection_service import SubtitleInspectionService
+from ..services.task_service import TaskService
 from .errors import raise_for_service_error
 from .schemas import (
     ActionResponse,
     ExistingSubtitleResponse,
+    FileSubtitleDownloadRequest,
     MediaListResponse,
     MediaMetadataResponse,
     SeasonMatchRequest,
@@ -223,3 +225,30 @@ async def get_media_subtitle_content(
         return SubtitleContentResponse.model_validate(result.to_dict())
     except Exception as exc:
         raise_for_service_error(exc)
+
+
+@router.post("/files/{file_id}/download-subtitle", response_model=SubtitleTask)
+async def download_subtitle_for_file(
+    file_id: int,
+    payload: FileSubtitleDownloadRequest,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+) -> SubtitleTask:
+    """为指定媒体文件创建字幕下载任务并自动关联归档。"""
+    media = _require_resource(session.get(ScannedFile, file_id), f"Media file {file_id} not found")
+    try:
+        task = TaskService.create_task(
+            session,
+            title=payload.title or media.filename,
+            source_url=payload.source_url,
+            language=payload.language,
+            file_id=file_id,
+        )
+    except Exception as exc:
+        raise_for_service_error(exc)
+
+    if task.id is None:
+        raise_for_service_error(RuntimeError("Task ID missing after persistence"))
+
+    background_tasks.add_task(TaskService.run_download_task, task.id)
+    return task

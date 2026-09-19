@@ -338,6 +338,26 @@ def _media_tools() -> list[types.Tool]:
                 "required": ["file_id"],
             },
         ),
+        types.Tool(
+            name="download_subtitle_for_file",
+            description=(
+                "按已扫描媒体文件 ID (file_id) 与 Zimuku 详情页直接下载并关联字幕，"
+                "自动处理重命名、语言标记与媒体状态更新"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_id": {"type": "integer", "description": "已扫描媒体文件 ID", "minimum": 1},
+                    "source_url": {"type": "string", "description": "Zimuku 字幕详情页 URL"},
+                    "title": {"type": "string", "description": "可选字幕标题，留空则自动根据媒体文件推导"},
+                    "language": {
+                        "type": "string",
+                        "description": "可选字幕语言代码，如 zh-CN-en、zh-CN，留空则自动检测内容判定",
+                    },
+                },
+                "required": ["file_id", "source_url"],
+            },
+        ),
     ]
 
 
@@ -351,13 +371,18 @@ def _task_tools() -> list[types.Tool]:
                 "properties": {
                     "title": {"type": "string", "description": "字幕标题"},
                     "source_url": {"type": "string", "description": "详情页 URL"},
-                    "target_path": {"type": "string", "description": "目标目录"},
+                    "target_path": {"type": "string", "description": "目标目录或视频文件绝对路径"},
                     "target_type": {"type": "string", "enum": ["movie", "tv"], "description": "媒体类型"},
                     "season": {"type": "integer", "description": "季数"},
                     "episode": {"type": "integer", "description": "集数"},
                     "language": {"type": "string", "description": "语言标记"},
+                    "file_id": {
+                        "type": "integer",
+                        "description": "可选已扫描媒体文件 ID，若提供则自动推导视频路径、类型、季和集",
+                        "minimum": 1,
+                    },
                 },
-                "required": ["title", "source_url"],
+                "required": ["source_url"],
             },
         ),
         types.Tool(
@@ -664,6 +689,37 @@ async def _handle_media_tool(name: str, arguments: dict[str, Any]) -> List[types
             logger.exception("读取字幕内容发生未预期错误")
             return _error(f"读取字幕内容失败: {exc}")
 
+    if name == "download_subtitle_for_file":
+        file_id = arguments.get("file_id")
+        source_url = arguments.get("source_url")
+        if file_id is None or not source_url:
+            return _missing_fields("file_id", "source_url")
+        title = arguments.get("title")
+        language = arguments.get("language")
+        try:
+            with Session(engine) as session:
+                task = TaskService.create_task(
+                    session,
+                    title=title or "",
+                    source_url=source_url,
+                    language=language,
+                    file_id=file_id,
+                )
+            if task.id is None:
+                return _error("创建下载任务失败")
+            await TaskService.run_download_task(task.id)
+            with Session(engine) as session:
+                updated_task = TaskService.get_task(session, task.id)
+                if updated_task and updated_task.status == "completed":
+                    return _success("字幕下载并关联归档成功：", updated_task.model_dump())
+                elif updated_task and updated_task.status == "failed":
+                    return _error(f"字幕下载或移动失败: {updated_task.error_msg}")
+                else:
+                    return _success("字幕下载任务已执行：", updated_task.model_dump() if updated_task else {})
+        except Exception as exc:
+            logger.exception("下载关联字幕发生未预期错误")
+            return _error(f"下载关联字幕失败: {exc}")
+
     return None
 
 
@@ -671,18 +727,22 @@ async def _handle_task_tool(name: str, arguments: dict[str, Any]) -> List[types.
     if name == "create_download_task":
         title = arguments.get("title")
         source_url = arguments.get("source_url")
-        if not title or not source_url:
-            return _missing_fields("title", "source_url")
+        file_id = arguments.get("file_id")
+        if not source_url:
+            return _missing_fields("source_url")
+        if not title and not file_id:
+            return _missing_fields("title")
         with Session(engine) as session:
             task = TaskService.create_task(
                 session,
-                title,
-                source_url,
+                title=title or "",
+                source_url=source_url,
                 target_path=arguments.get("target_path"),
                 target_type=arguments.get("target_type"),
                 season=arguments.get("season"),
                 episode=arguments.get("episode"),
                 language=arguments.get("language"),
+                file_id=file_id,
             )
             task_id = task.id
         if task_id is None:

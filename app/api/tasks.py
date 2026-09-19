@@ -21,19 +21,23 @@ def _resolve_task_create_request(
     season: Optional[int],
     episode: Optional[int],
     language: Optional[str],
+    file_id: Optional[int] = None,
 ) -> TaskCreateRequest:
     if payload is not None:
         return payload
-    if not title or not source_url:
+    if not source_url:
+        raise ValueError("source_url is required")
+    if not title and not file_id:
         raise ValueError("title and source_url are required")
     return TaskCreateRequest(
-        title=title,
+        title=title or "",
         source_url=source_url,
         target_path=target_path,
         target_type=target_type,
         season=season,
         episode=episode,
         language=language,
+        file_id=file_id,
     )
 
 
@@ -63,21 +67,23 @@ async def create_download_task(
     season: Optional[int] = Query(default=None, ge=1),
     episode: Optional[int] = Query(default=None, ge=1),
     language: Optional[str] = Query(default=None),
+    file_id: Optional[int] = Query(default=None, ge=1),
 ) -> SubtitleTask:
     """创建下载任务"""
     try:
         request = _resolve_task_create_request(
-            payload, title, source_url, target_path, target_type, season, episode, language
+            payload, title, source_url, target_path, target_type, season, episode, language, file_id
         )
         task = TaskService.create_task(
             session,
-            request.title,
+            request.title or "",
             request.source_url,
             target_path=request.target_path,
             target_type=request.target_type,
             season=request.season,
             episode=request.episode,
             language=request.language,
+            file_id=request.file_id,
         )
     except Exception as exc:
         raise_for_service_error(exc)

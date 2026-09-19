@@ -185,6 +185,7 @@ When using Compose deployment, MCP is mounted directly on the backend service po
 The current MCP coverage includes:
 
 - Subtitle search and download
+- Direct subtitle download and association for scanned media (`file_id`), with automatic renaming and language tagging
 - Existing subtitle inspection and content reading (with automatic language detection, bilingual verification, and dialogue sampling)
 - Base64 subtitle upload for individual files and ZIP/7z archives
 - Read-only subtitle language catalog lookup

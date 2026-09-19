@@ -20,6 +20,7 @@
 | GET | `/media/task-status` | 获取当前任务状态 | - |
 | GET | `/media/files/{id}/subtitles` | 查询媒体文件已有字幕及实际语言分析（双语/单语判定与对白采样） | path: `id` |
 | GET | `/media/files/{id}/subtitles/content` | 读取媒体文件已有字幕的具体文本内容与对白 | path: `id`, `filename?`, `max_lines?`, `clean_text?` |
+| POST | `/media/files/{id}/download-subtitle` | 按详情页为媒体文件下载关联字幕并自动归档 | path: `id`, body: `source_url`, `title?`, `language?` |
 
 ---
 
@@ -36,7 +37,7 @@
 | 方法 | 端点 | 说明 | 参数 |
 |------|------|------|------|
 | GET | `/tasks/` | 任务列表(分页) | `offset?`, `limit?`, `status?` |
-| POST | `/tasks/` | 创建下载任务 | `title`, `source_url` |
+| POST | `/tasks/` | 创建下载任务（target_path 支持传入视频文件绝对路径，亦可直接传 file_id） | `title?`, `source_url`, `file_id?`, `target_path?`, `target_type?`, `season?`, `episode?`, `language?` |
 | GET | `/tasks/{id}` | 获取任务状态 | path: `id` |
 | DELETE | `/tasks/{id}` | 删除任务 | path: `id`, `delete_files?` |
 | POST | `/tasks/{id}/retry` | 重试失败任务 | path: `id` |
@@ -89,6 +90,13 @@ MCP 工具 `list_subtitle_languages` 返回上传可用的语言代码、显示�
 - `read_subtitle_content`:
   读取字幕文件的实际文本内容或纯对白列表（过滤时间轴和样式代码），并附带语言分析结果。
   - 参数：`file_id` (必填), `filename` (可选，多字幕时需指定), `max_lines` (默认 100), `clean_text` (默认 true)
+
+- `download_subtitle_for_file`:
+  指定已扫描媒体文件与 Zimuku 详情页 URL 直接下载并关联归档字幕，自动处理视频同名命名、语言后缀标记与扫描状态更新。
+  - 参数：`file_id` (必填), `source_url` (必填), `title` (可选), `language` (可选)
+
+- `create_download_task`:
+  创建通用字幕下载任务。支持传入 `file_id`，或在 `target_path` 中直接传入视频文件的完整路径（如 `/path/to/S02E04.mkv`），系统会自动解析视频基准名并移动归档。
 
 ---
 
