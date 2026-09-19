@@ -47,7 +47,7 @@ pages
 ```
 
 - `src/api/`
-  - Domain-based API modules: `media`, `tasks`, `search`, `settings`
+  - Domain-based API modules: `media`, `tasks`, `search`, `settings`, `system`
 - `src/hooks/queries/`
   - Shared React Query queries and mutations
 - `src/contexts/MediaPollingContext.tsx`

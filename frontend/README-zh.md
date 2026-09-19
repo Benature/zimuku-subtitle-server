@@ -47,7 +47,7 @@ pages
 ```
 
 - `src/api/`
-  - 按领域拆分 API：`media`、`tasks`、`search`、`settings`
+  - 按领域拆分 API：`media`、`tasks`、`search`、`settings`、`system`
 - `src/hooks/queries/`
   - 统一封装 React Query 查询与 mutation
 - `src/contexts/MediaPollingContext.tsx`

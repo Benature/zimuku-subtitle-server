@@ -56,12 +56,16 @@ npm run lint
 
 - **`app/api/`** - REST API 路由（media、search、tasks、settings、system）
 - **`app/core/`** - 核心业务逻辑
-  - `scraper.py` - Zimuku 网页爬虫，实现三层递进匹配策略（搜索页 → 季详情页 → 兜底模式）
-  - `archive.py` - ZIP/7z 压缩包解压，解决文件名乱码（CP437 → GBK）
+  - `scraper/` - Zimuku 网页爬虫，包含请求重试、退避限速与三层递进匹配策略
+  - `archive/` - 压缩包管理器，支持 ZIP/7z 解压安全校验与编码乱码纠正（CP437 → GBK）
   - `ocr.py` - 轻量级像素采样 OCR 引擎，用于验证码识别
+  - `subtitle_detector.py` - 字幕编码检测、纯对白清洗与基于字符/词频采样的双语与多语言判定
+  - `subtitle_languages.py` - 标准化字幕语言代码定义与标签目录映射
+  - `metadata.py` - NFO、海报图片与本地元数据抽取
+  - `observability.py` - 统一日志格式与任务级上下文追踪
   - `config.py` - 配置管理
 - **`app/db/`** - SQLModel 数据库模型与会话管理
-- **`app/services/`** - Service 服务层（MediaService、TaskService、SearchService、SystemService）
+- **`app/services/`** - Service 服务层（MediaService、TaskService、SearchService、SystemService、SettingsService、MetadataService、SubtitleInspectionService、SubtitleUploadService）
 - **`app/mcp/`** - MCP 协议服务器实现
 - **`app/main.py`** - FastAPI 应用入口
 
@@ -78,7 +82,7 @@ npm run lint
 
 - `Setting` - 系统配置
 - `SearchCache` - 搜索结果缓存（24小时 TTL）
-- `SubtitleTask` - 后台下载任务
+- `SubtitleTask` - 后台下载任务（支持 `file_id` 外键关联视频，以及指定类型/季/集）
 - `MediaPath` - 媒体扫描目录
 - `ScannedFile` - 已扫描的视频文件
 
@@ -104,19 +108,31 @@ npm run lint
 基础 URL：`http://127.0.0.1:8000`
 Swagger 文档：`http://127.0.0.1:8000/docs`
 
-- `/media` - 媒体库管理（路径、文件、自动匹配）
+- `/media` - 媒体库管理（路径配置、扫描、聚合库查询、单文件/整季匹配、已有字幕检测分析、对白内容读取、按文件直下归档）
 - `/search` - 字幕搜索（带 SQLite 缓存）
-- `/tasks` - 任务管理（创建、重试、清理已完成）
-- `/settings` - 系统配置
-- `/system` - 系统统计与日志
+- `/tasks` - 任务管理（创建、重试、清理已完成，支持 `file_id` 关联与视频绝对路径）
+- `/settings` - 系统配置 CRUD
+- `/system` - 系统统计、最近日志与标准化字幕语言目录
 - `/health` - 健康检查
 
 ## MCP 集成
 
-MCP 服务器将搜索和下载功能暴露为 AI 可调用的工具。运行方式：
+MCP 服务器支持 stdio 与 HTTP 两种挂载模式，为 AI 提供以下主要工具：
+- 字幕搜索与下载（支持 `file_id` 自动归档或直接传入视频路径）
+- 已有字幕检验与内容读取（真实语言检测、双语判定、纯对白文本提取）
+- Base64 字幕/压缩包上传并关联视频（`upload_subtitle_file`）
+- 标准化字幕语言目录（`list_subtitle_languages`）
+- 媒体路径管理与扫描，单文件/整季自动匹配
+- 下载任务与系统设置管理
+
+运行方式：
 
 ```bash
+# 本地 stdio 模式
 python -m app.mcp.run_stdio
+
+# HTTP 模式（FastAPI 服务同端口暴露在 /mcp）
+uvicorn app.main:app --reload
 ```
 
 ## 开发注意事项
