@@ -4,12 +4,23 @@ from fastapi import APIRouter, BackgroundTasks, Body, Depends, Query
 from fastapi.responses import FileResponse
 from sqlmodel import Session
 
-from ..db.models import MediaPath, ScannedFile
+from ..db.models import MediaPath, ScannedFile, SubtitleTask
 from ..db.session import get_session
 from ..services.media_service import MediaService, global_task_status
 from ..services.metadata_service import MetadataService
+from ..services.subtitle_inspection_service import SubtitleInspectionService
+from ..services.task_service import TaskService
 from .errors import raise_for_service_error
-from .schemas import ActionResponse, MediaListResponse, MediaMetadataResponse, SeasonMatchRequest, TaskTriggerResponse
+from .schemas import (
+    ActionResponse,
+    ExistingSubtitleResponse,
+    FileSubtitleDownloadRequest,
+    MediaListResponse,
+    MediaMetadataResponse,
+    SeasonMatchRequest,
+    SubtitleContentResponse,
+    TaskTriggerResponse,
+)
 
 router = APIRouter(prefix="/media", tags=["Media"])
 T = TypeVar("T")
@@ -182,3 +193,62 @@ async def get_poster(
     except Exception as exc:
         raise_for_service_error(exc)
     return FileResponse(poster_path, media_type=media_type)
+
+
+@router.get("/files/{file_id}/subtitles", response_model=List[ExistingSubtitleResponse])
+async def get_media_subtitles(file_id: int, session: Session = Depends(get_session)) -> List[ExistingSubtitleResponse]:
+    """获取指定媒体文件的已有字幕列表及其实际语言检测分析。"""
+    try:
+        subtitles = SubtitleInspectionService.get_existing_subtitles(session, file_id)
+        return [ExistingSubtitleResponse.model_validate(sub.to_dict()) for sub in subtitles]
+    except Exception as exc:
+        raise_for_service_error(exc)
+
+
+@router.get("/files/{file_id}/subtitles/content", response_model=SubtitleContentResponse)
+async def get_media_subtitle_content(
+    file_id: int,
+    filename: Optional[str] = Query(default=None, description="字幕文件名，单字幕时可省略"),
+    max_lines: int = Query(default=100, ge=0, le=2000, description="读取最大行数/对白数"),
+    clean_text: bool = Query(default=True, description="是否清洗为纯对白文本，False 返回原始字幕行"),
+    session: Session = Depends(get_session),
+) -> SubtitleContentResponse:
+    """读取指定媒体文件的已有字幕内容并进行语言分析。"""
+    try:
+        result = SubtitleInspectionService.read_subtitle_content(
+            session,
+            file_id=file_id,
+            filename=filename,
+            max_lines=max_lines,
+            clean_text=clean_text,
+        )
+        return SubtitleContentResponse.model_validate(result.to_dict())
+    except Exception as exc:
+        raise_for_service_error(exc)
+
+
+@router.post("/files/{file_id}/download-subtitle", response_model=SubtitleTask)
+async def download_subtitle_for_file(
+    file_id: int,
+    payload: FileSubtitleDownloadRequest,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+) -> SubtitleTask:
+    """为指定媒体文件创建字幕下载任务并自动关联归档。"""
+    media = _require_resource(session.get(ScannedFile, file_id), f"Media file {file_id} not found")
+    try:
+        task = TaskService.create_task(
+            session,
+            title=payload.title or media.filename,
+            source_url=payload.source_url,
+            language=payload.language,
+            file_id=file_id,
+        )
+    except Exception as exc:
+        raise_for_service_error(exc)
+
+    if task.id is None:
+        raise_for_service_error(RuntimeError("Task ID missing after persistence"))
+
+    background_tasks.add_task(TaskService.run_download_task, task.id)
+    return task

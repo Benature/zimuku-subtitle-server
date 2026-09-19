@@ -65,6 +65,12 @@ export interface Setting {
   updated_at: string;
 }
 
+export interface SubtitleLanguage {
+  code: string;
+  display_name: string;
+  filename_tag: string;
+}
+
 // Search Types
 export interface SearchResult {
   title: string;

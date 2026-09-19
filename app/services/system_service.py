@@ -11,10 +11,15 @@ from ..core.scraper.agent import (
     DEFAULT_MIN_REQUEST_INTERVAL,
     DEFAULT_TIMEOUT,
 )
+from ..core.subtitle_languages import list_subtitle_languages
 from ..db.models import SearchCache, SubtitleTask
 
 
 class SystemService:
+    @staticmethod
+    def get_subtitle_languages() -> list[dict[str, str]]:
+        return list_subtitle_languages()
+
     @staticmethod
     def _get_log_file_path() -> str:
         return os.getenv("ZIMUKU_LOG_FILE", "app.log")

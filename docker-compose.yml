@@ -20,7 +20,7 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      UVICORN_LOG_LEVEL: ${UVICORN_LOG_LEVEL:-INFO}
+      UVICORN_LOG_LEVEL: ${UVICORN_LOG_LEVEL:-info}
       ZIMUKU_STORAGE_PATH: /app/storage
       ZIMUKU_DATABASE_URL: ${ZIMUKU_DATABASE_URL:-}
       ZIMUKU_DB_PATH: ${ZIMUKU_DB_PATH:-}

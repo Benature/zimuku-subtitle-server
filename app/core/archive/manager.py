@@ -42,7 +42,13 @@ class ArchiveManager:
         return filename
 
     @staticmethod
-    def extract(file_path: str, extract_to: str) -> List[str]:
+    def extract(
+        file_path: str,
+        extract_to: str,
+        *,
+        max_files: Optional[int] = None,
+        max_total_size: Optional[int] = None,
+    ) -> List[str]:
         """解压文件并返回解压后的文件列表"""
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
@@ -50,21 +56,32 @@ class ArchiveManager:
         os.makedirs(extract_to, exist_ok=True)
 
         if file_path.lower().endswith(".zip"):
-            return ArchiveManager._extract_zip(file_path, extract_to)
+            return ArchiveManager._extract_zip(file_path, extract_to, max_files, max_total_size)
         if file_path.lower().endswith(".7z"):
-            return ArchiveManager._extract_7z(file_path, extract_to)
+            return ArchiveManager._extract_7z(file_path, extract_to, max_files, max_total_size)
 
         logger.warning(f"Unsupported archive format: {file_path}")
         return []
 
     @staticmethod
-    def _extract_zip(file_path: str, extract_to: str) -> List[str]:
+    def _extract_zip(
+        file_path: str,
+        extract_to: str,
+        max_files: Optional[int] = None,
+        max_total_size: Optional[int] = None,
+    ) -> List[str]:
         extracted_files = []
         with zipfile.ZipFile(file_path, "r") as z:
-            for info in z.infolist():
-                if info.is_dir():
-                    continue
+            file_infos = [info for info in z.infolist() if not info.is_dir()]
+            if max_files is not None and len(file_infos) > max_files:
+                raise ValueError(f"Archive contains too many files: {len(file_infos)} > {max_files}")
+            if max_total_size is not None:
+                total_size = sum(info.file_size for info in file_infos)
+                if total_size > max_total_size:
+                    raise ValueError(f"Archive is too large after extraction: {total_size} > {max_total_size}")
 
+            extracted_size = 0
+            for info in file_infos:
                 filename = ArchiveManager._decode_zip_filename(info.filename)
                 relative_name = ArchiveManager._normalize_archive_name(filename)
                 if relative_name is None:
@@ -72,8 +89,12 @@ class ArchiveManager:
 
                 target_path = ArchiveManager._resolve_safe_target(extract_to, str(relative_name))
                 target_path.parent.mkdir(parents=True, exist_ok=True)
+                content = z.read(info.filename)
+                extracted_size += len(content)
+                if max_total_size is not None and extracted_size > max_total_size:
+                    raise ValueError(f"Archive is too large after extraction: {extracted_size} > {max_total_size}")
                 with open(target_path, "wb") as f:
-                    f.write(z.read(info.filename))
+                    f.write(content)
 
                 extracted_files.append(str(target_path))
                 logger.info(f"Extracted: {relative_name}")
@@ -81,14 +102,40 @@ class ArchiveManager:
         return extracted_files
 
     @staticmethod
-    def _extract_7z(file_path: str, extract_to: str) -> List[str]:
+    def _extract_7z(
+        file_path: str,
+        extract_to: str,
+        max_files: Optional[int] = None,
+        max_total_size: Optional[int] = None,
+    ) -> List[str]:
         extracted_files = []
         with py7zr.SevenZipFile(file_path, mode="r") as sz:
+            archive_entries = sz.list()
+            names = [entry.filename for entry in archive_entries]
+            file_entries = [entry for entry in archive_entries if not entry.is_directory]
+            if any(entry.is_symlink for entry in file_entries):
+                raise ValueError("Archive contains unsupported symbolic links")
+            if max_files is not None and len(file_entries) > max_files:
+                raise ValueError(f"Archive contains too many files: {len(file_entries)} > {max_files}")
+            if max_total_size is not None:
+                total_size = sum(entry.uncompressed for entry in file_entries)
+                if total_size > max_total_size:
+                    raise ValueError(f"Archive is too large after extraction: {total_size} > {max_total_size}")
+            for name in names:
+                relative_name = ArchiveManager._normalize_archive_name(name)
+                if relative_name is None:
+                    raise ValueError(f"Unsafe archive entry: {name}")
+                ArchiveManager._resolve_safe_target(extract_to, str(relative_name))
+
             sz.extractall(path=extract_to)
             # 7z 通常使用 UTF-16 编码，乱码较少，但我们仍记录文件
-            for name in sz.getnames():
+            extracted_size = 0
+            for name in names:
                 full_path = ArchiveManager._resolve_safe_target(extract_to, name)
                 if os.path.isfile(full_path):
+                    extracted_size += os.path.getsize(full_path)
+                    if max_total_size is not None and extracted_size > max_total_size:
+                        raise ValueError(f"Archive is too large after extraction: {extracted_size} > {max_total_size}")
                     extracted_files.append(str(full_path))
                     logger.info(f"Extracted (7z): {name}")
 

@@ -21,4 +21,7 @@ export const API_ENDPOINTS = {
 
   // Settings
   SETTINGS: '/settings/',
+
+  // System
+  SUBTITLE_LANGUAGES: '/system/subtitle-languages',
 } as const;

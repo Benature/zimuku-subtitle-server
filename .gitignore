@@ -8,6 +8,7 @@ __pycache__/
 .tmp/
 .env.production
 .env.test
+docker-compose.override.yml
 .test_scripts/
 storage/zimuku.db
 storage/downloads/

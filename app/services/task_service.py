@@ -7,7 +7,7 @@ from typing import List, Optional, Tuple
 from sqlmodel import Session, col, func, select
 
 from ..core.observability import log_context
-from ..db.models import SubtitleTask
+from ..db.models import ScannedFile, SubtitleTask
 from ..db.session import session_scope
 from .download_workflow import DownloadWorkflow, DownloadWorkflowError, SubtitleMover
 
@@ -38,16 +38,38 @@ class TaskService:
         season: Optional[int] = None,
         episode: Optional[int] = None,
         language: Optional[str] = None,
+        file_id: Optional[int] = None,
     ) -> SubtitleTask:
+        resolved_title = title
+        resolved_target_path = target_path
+        resolved_target_type = target_type
+        resolved_season = season
+        resolved_episode = episode
+
+        if file_id is not None:
+            media = session.get(ScannedFile, file_id)
+            if media:
+                if not resolved_target_path:
+                    resolved_target_path = media.file_path
+                if not resolved_target_type:
+                    resolved_target_type = media.type
+                if resolved_season is None:
+                    resolved_season = media.season
+                if resolved_episode is None:
+                    resolved_episode = media.episode
+                if not resolved_title:
+                    resolved_title = media.filename
+
         task = SubtitleTask(
-            title=title,
+            title=resolved_title,
             source_url=source_url,
             status="pending",
-            target_path=target_path,
-            target_type=target_type,
-            season=season,
-            episode=episode,
+            target_path=resolved_target_path,
+            target_type=resolved_target_type,
+            season=resolved_season,
+            episode=resolved_episode,
             language=language,
+            file_id=file_id,
         )
         session.add(task)
         session.commit()
@@ -169,6 +191,22 @@ class TaskService:
 
                         if final_error is None and final_filename and final_save_path:
                             TaskService._finalize_success(task, final_filename, final_save_path)
+                            # 关联更新 ScannedFile 状态
+                            media_record = None
+                            if task.file_id:
+                                media_record = session.get(ScannedFile, task.file_id)
+                            if not media_record and task.target_path:
+                                media_record = session.exec(
+                                    select(ScannedFile).where(ScannedFile.file_path == task.target_path)
+                                ).first()
+                            if media_record:
+                                media_record.has_subtitle = True
+                                session.add(media_record)
+                                logger.info(
+                                    "task %s: marked scanned_file %s has_subtitle=True",
+                                    task.id,
+                                    media_record.id,
+                                )
                         elif final_error is not None:
                             TaskService._finalize_failure(task, final_error)
 

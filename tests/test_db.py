@@ -86,3 +86,21 @@ def test_database_initialization_migrates_nfo_search_columns(monkeypatch):
 
     assert {"nfo_title", "nfo_original_title", "nfo_aliases"}.issubset(columns)
     assert {"ix_scannedfile_nfo_title", "ix_scannedfile_nfo_original_title"}.issubset(indexes)
+
+
+def test_database_initialization_migrates_subtitle_task_columns(monkeypatch):
+    legacy_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    with legacy_engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE subtitletask (id INTEGER PRIMARY KEY, title VARCHAR, source_url VARCHAR, status VARCHAR)"
+        )
+
+    monkeypatch.setattr(db_session, "engine", legacy_engine)
+    db_session.create_db_and_tables()
+
+    with legacy_engine.connect() as connection:
+        columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(subtitletask)")}
+        indexes = {row[1] for row in connection.exec_driver_sql("PRAGMA index_list(subtitletask)")}
+
+    assert "file_id" in columns
+    assert "ix_subtitletask_file_id" in indexes
