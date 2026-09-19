@@ -252,7 +252,15 @@
     "language": "Language",
     "size": "Size",
     "actions": "Actions",
-    "hasBackup": "Backup Exists"
+    "hasBackup": "Backup Exists",
+    "alignment": {
+      "unknown": "Unknown",
+      "aligned": "Aligned",
+      "misaligned": "Misaligned",
+      "unknownDescription": "Alignment not checked yet, or the subtitle file was modified",
+      "alignedDescription": "Subtitle is aligned with the audio track (within 100ms threshold)",
+      "misalignedDescription": "Subtitle is not aligned with the audio track; alignment recommended"
+    }
   },
   "movie": "Movie",
   "tv": "TV Series"

@@ -125,6 +125,10 @@ export interface ExistingSubtitle {
   encoding: string;
   has_backup: boolean;
   backup_filename?: string | null;
+  alignment_status: 'unknown' | 'aligned' | 'misaligned';
+  alignment_max_shift_ms?: number | null;
+  alignment_mean_shift_ms?: number | null;
+  alignment_checked_at?: string | null;
 }
 
 export interface AlignerStatus {

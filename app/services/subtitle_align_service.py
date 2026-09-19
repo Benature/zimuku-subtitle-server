@@ -8,7 +8,13 @@ from sqlmodel import Session, select
 from ..api.schemas import AlignerStatusResponse, SubtitleAlignmentCheckResponse, SubtitleAlignResponse
 from ..core.aligner import SubtitleAligner
 from ..db.models import ScannedFile, SubtitleTask
-from .subtitle_inspection_service import SubtitleInspectionService
+from .subtitle_inspection_service import (
+    ALIGNMENT_STATUS_ALIGNED,
+    ALIGNMENT_STATUS_MISALIGNED,
+    SubtitleInspectionService,
+    mark_alignment_unknown,
+    record_alignment_result,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +114,13 @@ class SubtitleAlignService:
             split_penalty=split_penalty,
         )
 
+        record_alignment_result(
+            subtitle_path=target_sub,
+            file_id=media.id,
+            status=ALIGNMENT_STATUS_ALIGNED,
+            session=session,
+        )
+
         return SubtitleAlignResponse(
             status="ok",
             message=f"字幕 '{target_sub.name}' 音轨对齐完成",
@@ -135,6 +148,15 @@ class SubtitleAlignService:
             reference_path=video_path,
             subtitle_path=target_sub,
             threshold_ms=threshold_ms,
+        )
+
+        record_alignment_result(
+            subtitle_path=target_sub,
+            file_id=media.id,
+            status=ALIGNMENT_STATUS_ALIGNED if result.aligned else ALIGNMENT_STATUS_MISALIGNED,
+            max_shift_ms=result.max_shift_ms,
+            mean_shift_ms=result.mean_shift_ms,
+            session=session,
         )
 
         return SubtitleAlignmentCheckResponse(
@@ -178,6 +200,7 @@ class SubtitleAlignService:
         # 覆盖还原原字幕
         shutil.move(str(backup_path), str(target_sub))
         logger.info("Restored original subtitle %s from %s", target_sub, backup_path)
+        mark_alignment_unknown(target_sub, session=session)
 
         return SubtitleAlignResponse(
             status="ok",
@@ -214,6 +237,11 @@ class SubtitleAlignService:
                 reference_path=video_path,
                 subtitle_path=sub_path,
                 output_path=sub_path,
+            )
+            record_alignment_result(
+                subtitle_path=sub_path,
+                file_id=task.file_id,
+                status=ALIGNMENT_STATUS_ALIGNED,
             )
             logger.info("task %s: auto-align completed for %s", task.id, sub_path.name)
             return True
@@ -270,6 +298,13 @@ class SubtitleAlignService:
             subtitle_path=sub_path,
             output_path=sub_path,
             split_penalty=split_penalty,
+        )
+
+        record_alignment_result(
+            subtitle_path=sub_path,
+            file_id=task.file_id,
+            status=ALIGNMENT_STATUS_ALIGNED,
+            session=session,
         )
 
         return SubtitleAlignResponse(

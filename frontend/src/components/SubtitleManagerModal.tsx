@@ -25,6 +25,38 @@ function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
+interface AlignmentBadgeStyle {
+  className: string;
+  icon: string;
+}
+
+function getAlignmentBadgeStyle(status: ExistingSubtitle['alignment_status']): AlignmentBadgeStyle {
+  switch (status) {
+    case 'aligned':
+      return {
+        className: 'bg-primary/10 text-primary border border-primary/20',
+        icon: 'check_circle',
+      };
+    case 'misaligned':
+      return {
+        className: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
+        icon: 'warning',
+      };
+    default:
+      return {
+        className: 'bg-surface-container-highest text-on-surface-variant border border-outline-variant/15',
+        icon: 'help',
+      };
+  }
+}
+
+function formatShift(ms: number): string {
+  if (ms >= 1000) {
+    return `${(ms / 1000).toFixed(1)}s`;
+  }
+  return `${Math.round(ms)}ms`;
+}
+
 export function SubtitleManagerModal({
   isOpen,
   onClose,
@@ -171,6 +203,23 @@ export function SubtitleManagerModal({
                         <span className="text-on-surface-variant/80 font-mono">
                           {formatBytes(sub.size_bytes)}
                         </span>
+                        {(() => {
+                          const badge = getAlignmentBadgeStyle(sub.alignment_status);
+                          const shiftText =
+                            sub.alignment_status === 'misaligned' && sub.alignment_max_shift_ms != null
+                              ? ` (${formatShift(sub.alignment_max_shift_ms)})`
+                              : '';
+                          return (
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-medium flex items-center gap-1 ${badge.className}`}
+                              title={t(`subtitles.alignment.${sub.alignment_status}Description`)}
+                            >
+                              <span className="material-symbols-outlined text-[12px]">{badge.icon}</span>
+                              {t(`subtitles.alignment.${sub.alignment_status}`)}
+                              {shiftText}
+                            </span>
+                          );
+                        })()}
                         {sub.has_backup && (
                           <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-medium">
                             {t('subtitles.hasBackup')}

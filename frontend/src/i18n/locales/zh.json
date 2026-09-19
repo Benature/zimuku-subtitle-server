@@ -252,7 +252,15 @@
     "language": "语言",
     "size": "大小",
     "actions": "操作",
-    "hasBackup": "已备份原版"
+    "hasBackup": "已备份原版",
+    "alignment": {
+      "unknown": "对齐未知",
+      "aligned": "已对齐",
+      "misaligned": "未对齐",
+      "unknownDescription": "尚未检查过音轨对齐状态，或字幕文件已被修改",
+      "alignedDescription": "字幕与音轨已对齐（偏移在 100ms 阈值内）",
+      "misalignedDescription": "字幕与音轨未对齐，建议执行音轨对齐"
+    }
   },
   "movie": "电影",
   "tv": "剧集"

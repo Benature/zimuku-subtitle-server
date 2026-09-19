@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import shutil
+import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -12,8 +13,8 @@ from .subtitle_detector import SubtitleDetector
 
 logger = logging.getLogger(__name__)
 
-# SRT: 00:00:01,000 --> 00:00:03,000
-_SRT_TIME_PATTERN = re.compile(r"(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})")
+# SRT: 00:00:01,000 --> 00:00:03,000（小时段兼容 1-2 位数字，如 0:01:58,774）
+_SRT_TIME_PATTERN = re.compile(r"(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})")
 # ASS/SSA: Dialogue: 0,0:00:01.00,0:00:03.00,...
 _ASS_DIALOGUE_PATTERN = re.compile(r"^\s*Dialogue\s*:\s*\d+\s*,\s*(\d+):(\d{2}):(\d{2})\.(\d{2})\s*,", re.MULTILINE)
 
@@ -155,8 +156,10 @@ class SubtitleAligner:
         except Exception as exc:
             raise SubtitleAlignError(f"解析待对齐字幕编码失败: {exc}") from exc
 
-        temp_input = temp_dir / f"input_{os.getpid()}_{subtitle_path.name}"
-        temp_output = temp_dir / f"output_{os.getpid()}_{subtitle_path.name}"
+        run_token = f"{os.getpid()}_{uuid.uuid4().hex[:8]}"
+        # 临时文件统一使用小写扩展名（alass 对扩展名大小写敏感，.SRT 会被拒绝）
+        temp_input = temp_dir / f"input_{run_token}{sub_ext}"
+        temp_output = temp_dir / f"output_{run_token}{sub_ext}"
 
         try:
             temp_input.write_text(text_content, encoding="utf-8")
@@ -209,7 +212,8 @@ class SubtitleAligner:
         """
         temp_dir = Path(get_temp_path()) / "align"
         temp_dir.mkdir(parents=True, exist_ok=True)
-        temp_output = temp_dir / f"check_{os.getpid()}_{subtitle_path.name}"
+        run_token = f"{os.getpid()}_{uuid.uuid4().hex[:8]}"
+        temp_output = temp_dir / f"check_{run_token}{subtitle_path.suffix.lower()}"
 
         try:
             await cls.align(

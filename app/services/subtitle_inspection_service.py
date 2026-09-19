@@ -1,13 +1,18 @@
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from ..core.subtitle_detector import LanguageAnalysisResult, SubtitleDetector
 from ..core.utils import SUBTITLE_EXTENSIONS
-from ..db.models import ScannedFile
+from ..db.models import ScannedFile, SubtitleAlignmentState
+from ..db.session import session_scope
+
+ALIGNMENT_STATUS_UNKNOWN = "unknown"
+ALIGNMENT_STATUS_ALIGNED = "aligned"
+ALIGNMENT_STATUS_MISALIGNED = "misaligned"
 
 
 class SubtitleInspectionError(Exception):
@@ -20,6 +25,116 @@ class SubtitleNotFoundError(SubtitleInspectionError, LookupError):
 
 class SubtitleInvalidRequestError(SubtitleInspectionError, ValueError):
     """请求参数无效或不支持的操作。"""
+
+
+@dataclass(frozen=True)
+class AlignmentStateInfo:
+    """单个字幕文件的对齐状态视图。"""
+
+    status: str = ALIGNMENT_STATUS_UNKNOWN
+    max_shift_ms: Optional[float] = None
+    mean_shift_ms: Optional[float] = None
+    checked_at: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def compute_file_signature(sub_path: Path) -> tuple[int, int]:
+    """计算字幕文件签名（大小 + 修改时间），用于检测文件是否被修改。"""
+    stat = sub_path.stat()
+    return stat.st_size, stat.st_mtime_ns
+
+
+def resolve_alignment_state(session: Session, sub_path: Path) -> AlignmentStateInfo:
+    """读取字幕的对齐状态；文件签名与记录不匹配时回落为 unknown。"""
+    record = session.exec(
+        select(SubtitleAlignmentState).where(SubtitleAlignmentState.subtitle_path == str(sub_path))
+    ).first()
+    if record is None:
+        return AlignmentStateInfo()
+
+    try:
+        size_bytes, mtime_ns = compute_file_signature(sub_path)
+    except OSError:
+        return AlignmentStateInfo()
+
+    if record.size_bytes != size_bytes or record.mtime_ns != mtime_ns:
+        return AlignmentStateInfo()
+
+    return AlignmentStateInfo(
+        status=record.status,
+        max_shift_ms=record.max_shift_ms,
+        mean_shift_ms=record.mean_shift_ms,
+        checked_at=record.checked_at.isoformat(),
+    )
+
+
+def record_alignment_result(
+    subtitle_path: Path | str,
+    file_id: Optional[int],
+    status: str,
+    max_shift_ms: Optional[float] = None,
+    mean_shift_ms: Optional[float] = None,
+    session: Optional[Session] = None,
+) -> None:
+    """写入/更新字幕的对齐状态（同时记录当前文件签名）。"""
+
+    def _save(target_session: Session) -> None:
+        sub_path = Path(subtitle_path)
+        size_bytes, mtime_ns = compute_file_signature(sub_path)
+        path_str = str(sub_path)
+        record = target_session.exec(
+            select(SubtitleAlignmentState).where(SubtitleAlignmentState.subtitle_path == path_str)
+        ).first()
+        now = datetime.now()
+        if record is None:
+            record = SubtitleAlignmentState(
+                subtitle_path=path_str,
+                file_id=file_id,
+                status=status,
+                max_shift_ms=max_shift_ms,
+                mean_shift_ms=mean_shift_ms,
+                size_bytes=size_bytes,
+                mtime_ns=mtime_ns,
+                checked_at=now,
+                updated_at=now,
+            )
+        else:
+            record.file_id = file_id
+            record.status = status
+            record.max_shift_ms = max_shift_ms
+            record.mean_shift_ms = mean_shift_ms
+            record.size_bytes = size_bytes
+            record.mtime_ns = mtime_ns
+            record.checked_at = now
+            record.updated_at = now
+        target_session.add(record)
+        target_session.commit()
+
+    if session is not None:
+        _save(session)
+    else:
+        with session_scope() as new_session:
+            _save(new_session)
+
+
+def mark_alignment_unknown(subtitle_path: Path | str, session: Optional[Session] = None) -> None:
+    """将字幕对齐状态重置为 unknown（删除状态记录）。"""
+
+    def _delete(target_session: Session) -> None:
+        record = target_session.exec(
+            select(SubtitleAlignmentState).where(SubtitleAlignmentState.subtitle_path == str(subtitle_path))
+        ).first()
+        if record is not None:
+            target_session.delete(record)
+            target_session.commit()
+
+    if session is not None:
+        _delete(session)
+    else:
+        with session_scope() as new_session:
+            _delete(new_session)
 
 
 @dataclass(frozen=True)
@@ -43,6 +158,10 @@ class ExistingSubtitleInfo:
     details: dict[str, Any]
     has_backup: bool = False
     backup_filename: str | None = None
+    alignment_status: str = ALIGNMENT_STATUS_UNKNOWN
+    alignment_max_shift_ms: float | None = None
+    alignment_mean_shift_ms: float | None = None
+    alignment_checked_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -82,7 +201,7 @@ class SubtitleInspectionService:
 
         results: list[ExistingSubtitleInfo] = []
         for sub_path in subtitle_paths:
-            info = cls._inspect_single_subtitle(sub_path)
+            info = cls._inspect_single_subtitle(sub_path, session)
             results.append(info)
 
         return results
@@ -200,7 +319,7 @@ class SubtitleInspectionService:
         return sorted(subtitles, key=lambda p: p.name)
 
     @classmethod
-    def _inspect_single_subtitle(cls, sub_path: Path) -> ExistingSubtitleInfo:
+    def _inspect_single_subtitle(cls, sub_path: Path, session: Optional[Session] = None) -> ExistingSubtitleInfo:
         """检查单个字幕文件的元数据和语言。"""
         stat = sub_path.stat()
         modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
@@ -212,6 +331,11 @@ class SubtitleInspectionService:
         backup_path = sub_path.with_name(f"{sub_path.stem}.orig{sub_path.suffix}")
         has_backup = backup_path.is_file()
         backup_filename = backup_path.name if has_backup else None
+
+        if session is not None:
+            alignment = resolve_alignment_state(session, sub_path)
+        else:
+            alignment = AlignmentStateInfo()
 
         return ExistingSubtitleInfo(
             filename=sub_path.name,
@@ -233,4 +357,8 @@ class SubtitleInspectionService:
             details=analysis.details,
             has_backup=has_backup,
             backup_filename=backup_filename,
+            alignment_status=alignment.status,
+            alignment_max_shift_ms=alignment.max_shift_ms,
+            alignment_mean_shift_ms=alignment.mean_shift_ms,
+            alignment_checked_at=alignment.checked_at,
         )

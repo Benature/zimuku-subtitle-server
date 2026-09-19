@@ -85,6 +85,7 @@ npm run lint
 - `MediaPath` - 媒体扫描目录
 - `ScannedFile` - 已扫描的视频文件
 - `SubtitleTrash` - 字幕回收站记录（安全移入回收站的文件、元数据与还原状态）
+- `SubtitleAlignmentState` - 字幕与音轨对齐状态（unknown/aligned/misaligned），以文件签名（大小+mtime）校验有效性，字幕文件一旦被修改，读取时状态自动回落为 unknown
 
 ## 核心工作流
 
@@ -133,6 +134,7 @@ python -m app.mcp.run_stdio
 - 前端使用动态轮询频率（后台任务活跃时 2s，空闲时 10s）
 - 剧集季补全采用顺序执行模式（间隔 2s），避免并发导致封禁
 - 字幕下载完成后默认自动执行音轨对齐（设置项 `auto_align_after_download`，前端系统设置页可关闭；对齐前自动备份 `.orig` 原字幕，可随时还原；对齐失败仅记录日志，不影响任务状态）
+- 对齐状态是字幕级属性：对齐/检查成功写入 `SubtitleAlignmentState`，还原原字幕时重置为 unknown；批量全库检查可用 `python -m app.scripts.check_library_alignment`（支持分片并行与 `--import-report` 历史报告回写）
 - 定时扫描补字幕：设置项 `schedule_enabled` / `schedule_cron`（默认每天 03:00），触发后先刷新媒体库，再对缺字幕的作品顺序补全（间隔 2s）；`schedule_max_works_per_run`（默认 1，0 表示不限）限制每次运行补全的作品数量，按缺字幕文件数降序选取、标题升序兜底；完成后可按 `feishu_notify_enabled` / `feishu_webhook_url` / `feishu_webhook_secret`（加签可选）推送飞书汇总通知（含本次补全作品与剩余待补数）；前端系统设置页有专属配置卡片，支持立即执行与发送测试通知
 - 修改代码后，按照需要修订文档；有功能修改需要看是否修改、添加对应的单元测试
 

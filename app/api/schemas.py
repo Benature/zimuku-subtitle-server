@@ -127,6 +127,10 @@ class ExistingSubtitleResponse(BaseModel):
     details: dict[str, Any]
     has_backup: bool = False
     backup_filename: Optional[str] = None
+    alignment_status: str = "unknown"
+    alignment_max_shift_ms: Optional[float] = None
+    alignment_mean_shift_ms: Optional[float] = None
+    alignment_checked_at: Optional[str] = None
 
 
 class SubtitleContentResponse(BaseModel):

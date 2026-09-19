@@ -77,6 +77,25 @@ class ScannedFile(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.now)
 
 
+class SubtitleAlignmentState(SQLModel, table=True):
+    """字幕与音轨对齐状态表。
+
+    以文件签名（大小 + 修改时间）校验记录有效性：
+    字幕文件一旦被修改，签名不匹配，读取时状态自动回落为 unknown。
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    subtitle_path: str = Field(index=True, unique=True)
+    file_id: Optional[int] = Field(default=None, index=True, foreign_key="scannedfile.id")
+    status: str = Field(default="unknown")  # unknown, aligned, misaligned
+    max_shift_ms: Optional[float] = None
+    mean_shift_ms: Optional[float] = None
+    size_bytes: int = 0
+    mtime_ns: int = 0
+    checked_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
 class SubtitleTrash(SQLModel, table=True):
     """字幕回收站记录表（安全保存已回收的字幕文件与元数据，支持还原）"""
 

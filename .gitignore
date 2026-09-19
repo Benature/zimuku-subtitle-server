@@ -41,3 +41,6 @@ htmlcov/
 storage/trash/
 storage/*.db-shm
 storage/*.db-wal
+
+# runtime logs
+logs/

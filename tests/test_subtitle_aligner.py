@@ -7,11 +7,14 @@ from sqlmodel import Session, delete, select
 
 from app.core.aligner import AlignerStatus, SubtitleAligner, SubtitleAlignError
 from app.core.config import ConfigManager, SettingKey
-from app.db.models import MediaPath, ScannedFile, Setting, SubtitleTask
+from app.db.models import MediaPath, ScannedFile, Setting, SubtitleAlignmentState, SubtitleTask
 from app.db.session import create_db_and_tables, engine
 from app.main import app
 from app.services.subtitle_align_service import SubtitleAlignService
-from app.services.subtitle_inspection_service import SubtitleInspectionService
+from app.services.subtitle_inspection_service import (
+    SubtitleInspectionService,
+    record_alignment_result,
+)
 from app.services.task_service import TaskService
 
 client = TestClient(app)
@@ -24,12 +27,14 @@ def clean_records():
         session.exec(delete(SubtitleTask))
         session.exec(delete(ScannedFile))
         session.exec(delete(MediaPath))
+        session.exec(delete(SubtitleAlignmentState))
         session.commit()
     yield
     with Session(engine) as session:
         session.exec(delete(SubtitleTask))
         session.exec(delete(ScannedFile))
         session.exec(delete(MediaPath))
+        session.exec(delete(SubtitleAlignmentState))
         auto_align_setting = session.exec(
             select(Setting).where(Setting.key == SettingKey.AUTO_ALIGN_AFTER_DOWNLOAD)
         ).first()
@@ -615,3 +620,119 @@ async def test_mcp_align_and_check_tools(tmp_path: Path):
         res = await handle_call_tool("check_subtitle_alignment", {"file_id": file_id})
         assert "音轨对齐检查结果" in res[0].text
         assert '"aligned": true' in res[0].text
+
+
+@pytest.mark.anyio
+async def test_alignment_state_attribute_lifecycle(tmp_path: Path):
+    """对齐状态作为字幕属性：记录 -> 查询 -> 文件修改后回落 unknown -> 还原后 unknown。"""
+    video_path = tmp_path / "state.mp4"
+    video_path.write_bytes(b"video")
+    sub_path = tmp_path / "state.zh-CN.srt"
+    sub_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nState\n", encoding="utf-8")
+
+    with Session(engine) as session:
+        path_record = MediaPath(path=str(tmp_path), type="movie")
+        session.add(path_record)
+        session.commit()
+        session.refresh(path_record)
+        media = ScannedFile(
+            path_id=path_record.id,
+            type="movie",
+            file_path=str(video_path),
+            filename=video_path.name,
+            has_subtitle=True,
+        )
+        session.add(media)
+        session.commit()
+        session.refresh(media)
+        file_id = media.id
+
+    # 1. 初始状态 unknown
+    with Session(engine) as session:
+        subs = SubtitleInspectionService.get_existing_subtitles(session, file_id)
+        assert subs[0].alignment_status == "unknown"
+        assert subs[0].alignment_max_shift_ms is None
+
+    # 2. 手动记录 misaligned 状态 -> 查询可见
+    record_alignment_result(
+        subtitle_path=sub_path,
+        file_id=file_id,
+        status="misaligned",
+        max_shift_ms=2500.0,
+        mean_shift_ms=1200.0,
+    )
+    with Session(engine) as session:
+        subs = SubtitleInspectionService.get_existing_subtitles(session, file_id)
+        assert subs[0].alignment_status == "misaligned"
+        assert subs[0].alignment_max_shift_ms == 2500.0
+        assert subs[0].alignment_mean_shift_ms == 1200.0
+        assert subs[0].alignment_checked_at is not None
+
+    # 3. 执行对齐后状态变为 aligned
+    async def fake_align(reference_path, subtitle_path, output_path, split_penalty=7.0):
+        output_path.write_text("1\n00:00:03,500 --> 00:00:04,500\nState\n", encoding="utf-8")
+
+    with patch.object(SubtitleAligner, "align", side_effect=fake_align):
+        with Session(engine) as session:
+            await SubtitleAlignService.align_media_subtitle(session, file_id)
+
+    with Session(engine) as session:
+        subs = SubtitleInspectionService.get_existing_subtitles(session, file_id)
+        assert subs[0].alignment_status == "aligned"
+        assert subs[0].alignment_max_shift_ms is None
+
+    # 4. 字幕文件被外部修改后 -> 状态回落 unknown
+    sub_path.write_text("1\n00:00:09,000 --> 00:00:10,000\nExternally Modified\n", encoding="utf-8")
+    with Session(engine) as session:
+        subs = SubtitleInspectionService.get_existing_subtitles(session, file_id)
+        assert subs[0].alignment_status == "unknown"
+        assert subs[0].alignment_max_shift_ms is None
+
+    # 5. 还原原字幕后 -> 状态重置 unknown（即使此前记录过 aligned）
+    record_alignment_result(subtitle_path=sub_path, file_id=file_id, status="aligned")
+    with Session(engine) as session:
+        SubtitleAlignService.restore_media_subtitle(session, file_id, filename="state.zh-CN.srt")
+    with Session(engine) as session:
+        subs = SubtitleInspectionService.get_existing_subtitles(session, file_id)
+        assert subs[0].alignment_status == "unknown"
+        record = session.exec(
+            select(SubtitleAlignmentState).where(SubtitleAlignmentState.subtitle_path == str(sub_path))
+        ).first()
+        assert record is None
+
+
+def test_alignment_state_in_api_response(tmp_path: Path):
+    video_path = tmp_path / "api_state.mp4"
+    video_path.write_bytes(b"video")
+    sub_path = tmp_path / "api_state.srt"
+    sub_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nApi\n", encoding="utf-8")
+
+    with Session(engine) as session:
+        path_record = MediaPath(path=str(tmp_path), type="movie")
+        session.add(path_record)
+        session.commit()
+        session.refresh(path_record)
+        media = ScannedFile(
+            path_id=path_record.id,
+            type="movie",
+            file_path=str(video_path),
+            filename=video_path.name,
+            has_subtitle=True,
+        )
+        session.add(media)
+        session.commit()
+        session.refresh(media)
+        file_id = media.id
+
+    record_alignment_result(
+        subtitle_path=sub_path,
+        file_id=file_id,
+        status="misaligned",
+        max_shift_ms=800.0,
+    )
+
+    res = client.get(f"/media/files/{file_id}/subtitles")
+    assert res.status_code == 200
+    data = res.json()
+    assert data[0]["alignment_status"] == "misaligned"
+    assert data[0]["alignment_max_shift_ms"] == 800.0
