@@ -19,6 +19,7 @@ class SettingKey:
     AUTO_ALIGN_AFTER_DOWNLOAD = "auto_align_after_download"
     SCHEDULE_ENABLED = "schedule_enabled"
     SCHEDULE_CRON = "schedule_cron"
+    SCHEDULE_MAX_WORKS_PER_RUN = "schedule_max_works_per_run"
     FEISHU_NOTIFY_ENABLED = "feishu_notify_enabled"
     FEISHU_WEBHOOK_URL = "feishu_webhook_url"
     FEISHU_WEBHOOK_SECRET = "feishu_webhook_secret"
@@ -85,6 +86,12 @@ SETTINGS_DEFINITIONS = {
         key=SettingKey.SCHEDULE_CRON,
         default="0 3 * * *",
         description="定时扫描补字幕的 cron 表达式（5 段式：分 时 日 月 周）",
+    ),
+    SettingKey.SCHEDULE_MAX_WORKS_PER_RUN: SettingDefinition(
+        key=SettingKey.SCHEDULE_MAX_WORKS_PER_RUN,
+        default="1",
+        description="每次定时运行最多补全的作品（剧集/电影）数量，缺字幕最多者优先；0 表示不限",
+        kind="int",
     ),
     SettingKey.FEISHU_NOTIFY_ENABLED: SettingDefinition(
         key=SettingKey.FEISHU_NOTIFY_ENABLED,
@@ -325,6 +332,15 @@ class ConfigManager:
             except (ValueError, TypeError) as exc:
                 raise ValueError(f"schedule_cron 不是合法的 5 段式 cron 表达式: {normalized}") from exc
             return normalized
+
+        if key == SettingKey.SCHEDULE_MAX_WORKS_PER_RUN:
+            try:
+                numeric_value = int(normalized)
+            except ValueError as exc:
+                raise ValueError("schedule_max_works_per_run 必须是整数") from exc
+            if numeric_value < 0:
+                raise ValueError("schedule_max_works_per_run 必须大于等于 0（0 表示不限）")
+            return str(numeric_value)
 
         if key == SettingKey.FEISHU_WEBHOOK_URL:
             if normalized and not normalized.startswith(("http://", "https://")):

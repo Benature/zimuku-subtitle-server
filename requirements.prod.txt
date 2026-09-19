@@ -6,3 +6,4 @@ sqlmodel==0.0.37
 python-multipart==0.0.22
 py7zr==1.1.0
 mcp==1.26.0
+apscheduler==3.11.0

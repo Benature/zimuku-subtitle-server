@@ -27,6 +27,11 @@ export const API_ENDPOINTS = {
   // Settings
   SETTINGS: '/settings/',
 
+  // Schedule
+  SCHEDULE_STATUS: '/schedule/status',
+  SCHEDULE_RUN_NOW: '/schedule/run-now',
+  SCHEDULE_FEISHU_TEST: '/schedule/feishu/test',
+
   // System
   SUBTITLE_LANGUAGES: '/system/subtitle-languages',
 } as const;

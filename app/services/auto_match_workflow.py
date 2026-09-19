@@ -3,7 +3,7 @@ import logging
 import re
 import shutil
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable, List, Optional
 
@@ -220,6 +220,21 @@ class AutoMatchWorkflow:
         return sorted(candidates, key=lambda candidate: candidate.score, reverse=True)
 
 
+@dataclass
+class BatchMatchStats:
+    """批量补全运行结果"""
+
+    total: int = 0
+    matched: int = 0
+    failed_files: List[str] = field(default_factory=list)
+    titles: List[str] = field(default_factory=list)
+    remaining_works: int = 0
+
+    @property
+    def failed(self) -> int:
+        return len(self.failed_files)
+
+
 class SeasonMatchWorkflow:
     def __init__(
         self,
@@ -263,3 +278,78 @@ class SeasonMatchWorkflow:
                 await self._auto_match_runner(file_id)
                 await self._sleep(2)
             logger.debug("季匹配完成: title=%s, season=%s", title, season)
+
+
+class LibraryMatchWorkflow:
+    """全库批量补全：对缺失字幕的作品（剧集/电影）执行自动匹配。
+
+    按 ``max_works`` 限制每次运行处理的作品数量（缺字幕文件最多者优先，
+    0 表示不限），避免单次运行请求过多导致封禁。
+    """
+
+    def __init__(
+        self,
+        session_factory: Callable[[], AbstractContextManager[Session]],
+        auto_match_runner: Callable[[int], Awaitable[bool]],
+        sleep_func: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        max_works: int = 0,
+    ):
+        self._session_factory = session_factory
+        self._auto_match_runner = auto_match_runner
+        self._sleep = sleep_func
+        self._max_works = max_works
+
+    def load_pending_files(self) -> List[tuple[int, str]]:
+        with self._session_factory() as session:
+            statement = select(ScannedFile).where(col(ScannedFile.has_subtitle).is_(False))
+            files = session.exec(statement).all()
+            return [(file_record.id, file_record.filename) for file_record in files if file_record.id is not None]
+
+    def load_pending_groups(self) -> dict[str, List[tuple[int, str]]]:
+        """按作品（规范化标题）分组缺失字幕的文件。"""
+        with self._session_factory() as session:
+            statement = select(ScannedFile).where(col(ScannedFile.has_subtitle).is_(False))
+            files = session.exec(statement).all()
+
+        groups: dict[str, List[tuple[int, str]]] = {}
+        for file_record in files:
+            if file_record.id is None:
+                continue
+            title = normalize_media_title(file_record.extracted_title or file_record.filename)
+            groups.setdefault(title, []).append((file_record.id, file_record.filename))
+        return groups
+
+    def select_works(self, groups: dict[str, List[tuple[int, str]]]) -> tuple[List[tuple[str, List]], int]:
+        """按缺字幕文件数降序（标题升序兜底）选择本次运行的作品，返回 (选中项, 剩余作品数)。"""
+        ordered = sorted(groups.items(), key=lambda item: (-len(item[1]), item[0]))
+        if self._max_works <= 0:
+            return ordered, 0
+        return ordered[: self._max_works], max(0, len(ordered) - self._max_works)
+
+    async def run(self) -> BatchMatchStats:
+        selected, remaining = self.select_works(self.load_pending_groups())
+        stats = BatchMatchStats(
+            total=sum(len(files) for _, files in selected),
+            titles=[title for title, _ in selected],
+            remaining_works=remaining,
+        )
+        if not selected:
+            logger.debug("批量补全：没有缺失字幕的文件")
+            return stats
+
+        with log_context(correlation_id=f"library-{stats.total}", job_name="library-match"):
+            logger.info(
+                "批量补全开始：作品=%s，共 %s 个缺失字幕文件，剩余 %s 部作品待后续运行",
+                stats.titles,
+                stats.total,
+                remaining,
+            )
+            for _, files in selected:
+                for file_id, filename in files:
+                    if await self._auto_match_runner(file_id):
+                        stats.matched += 1
+                    else:
+                        stats.failed_files.append(filename)
+                    await self._sleep(2)
+            logger.info("批量补全完成：成功 %s / 失败 %s", stats.matched, stats.failed)
+        return stats

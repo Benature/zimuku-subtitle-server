@@ -7,6 +7,9 @@ import { useMediaPolling } from '../hooks/useMediaPolling';
 import {
   useAddMediaPathMutation,
   useDeleteMediaPathMutation,
+  useFeishuTestMutation,
+  useRunScheduleNowMutation,
+  useScheduleStatusQuery,
   useSettingsQuery,
   useSubtitleLanguagesQuery,
   useTriggerMediaMatchMutation,
@@ -32,6 +35,52 @@ export default function SettingsPage() {
   const settings = settingsQuery.data ?? [];
   const autoAlignSetting = settings.find(s => s.key === 'auto_align_after_download');
   const autoAlignEnabled = (autoAlignSetting?.value ?? 'true') === 'true';
+
+  const scheduleStatusQuery = useScheduleStatusQuery();
+  const runScheduleNowMutation = useRunScheduleNowMutation();
+  const feishuTestMutation = useFeishuTestMutation();
+  const scheduleStatus = scheduleStatusQuery.data;
+  const scheduleEnabled = (settings.find(s => s.key === 'schedule_enabled')?.value ?? 'false') === 'true';
+  const scheduleCron = settings.find(s => s.key === 'schedule_cron')?.value ?? '0 3 * * *';
+  const scheduleMaxWorks = settings.find(s => s.key === 'schedule_max_works_per_run')?.value ?? '1';
+  const feishuEnabled = (settings.find(s => s.key === 'feishu_notify_enabled')?.value ?? 'false') === 'true';
+  const feishuWebhook = settings.find(s => s.key === 'feishu_webhook_url')?.value ?? '';
+  const feishuSecret = settings.find(s => s.key === 'feishu_webhook_secret')?.value ?? '';
+
+  const handleToggleSetting = async (key: string, current: boolean): Promise<void> => {
+    try {
+      const setting = settings.find(s => s.key === key);
+      await updateSettingMutation.mutateAsync({
+        key,
+        value: current ? 'false' : 'true',
+        description: setting?.description,
+      });
+      await scheduleStatusQuery.refetch();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      alert(t('page.settings.saveFailed') + ': ' + message);
+    }
+  };
+
+  const handleRunScheduleNow = async (): Promise<void> => {
+    try {
+      await runScheduleNowMutation.mutateAsync();
+      alert(t('page.settings.scheduleRunStarted'));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      alert(t('page.settings.scheduleRunFailed') + ': ' + message);
+    }
+  };
+
+  const handleFeishuTest = async (): Promise<void> => {
+    try {
+      const result = await feishuTestMutation.mutateAsync();
+      alert(result.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      alert(t('page.settings.saveFailed') + ': ' + message);
+    }
+  };
 
   const handleToggleAutoAlign = async (): Promise<void> => {
     try {
@@ -230,6 +279,179 @@ export default function SettingsPage() {
                 </div>
               ))
             )}
+          </div>
+        </section>
+
+        <section className="md:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="bg-surface-container rounded-2xl p-8 transition-all duration-300 hover:bg-surface-container-high border border-outline-variant/10">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>
+                  schedule
+                </span>
+                <div>
+                  <h3 className="font-headline font-bold text-xl text-on-surface">{t('page.settings.scheduleTitle')}</h3>
+                  <p className="text-xs text-on-surface-variant mt-1">{t('page.settings.scheduleDescription')}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => handleToggleSetting('schedule_enabled', scheduleEnabled)}
+                className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                  scheduleEnabled ? 'bg-primary' : 'bg-surface-container-highest'
+                }`}
+                title={t('page.settings.scheduleEnabled')}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                    scheduleEnabled ? 'translate-x-5' : ''
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={formValues['schedule_cron'] ?? scheduleCron}
+                  onChange={e => setFormValues(prev => ({ ...prev, schedule_cron: e.target.value }))}
+                  placeholder={t('page.settings.scheduleCronPlaceholder')}
+                  className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
+                />
+                <button
+                  onClick={() => handleSaveSetting('schedule_cron')}
+                  className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
+                >
+                  {t('page.settings.save')}
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  value={formValues['schedule_max_works_per_run'] ?? scheduleMaxWorks}
+                  onChange={e => setFormValues(prev => ({ ...prev, schedule_max_works_per_run: e.target.value }))}
+                  className="w-28 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
+                />
+                <span className="flex-1 text-xs text-on-surface-variant">{t('page.settings.scheduleMaxWorks')}</span>
+                <button
+                  onClick={() => handleSaveSetting('schedule_max_works_per_run')}
+                  className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
+                >
+                  {t('page.settings.save')}
+                </button>
+              </div>
+
+              <div className="text-xs text-on-surface-variant space-y-1">
+                <div>
+                  {t('page.settings.scheduleNextRun')}：
+                  {scheduleStatus?.next_run_time
+                    ? new Date(scheduleStatus.next_run_time).toLocaleString()
+                    : t('page.settings.scheduleNotScheduled')}
+                </div>
+                {scheduleStatus?.running && <div className="text-primary">{t('page.settings.scheduleRunning')}</div>}
+                {scheduleStatus?.last_run && (
+                  <div>
+                    {t('page.settings.scheduleLastRun')}（{scheduleStatus.last_run.finished_at}）：
+                    {scheduleStatus.last_run.error
+                      ? t('page.settings.scheduleLastRunError', { error: scheduleStatus.last_run.error })
+                      : t('page.settings.scheduleLastRunSummary', {
+                          scanned: scheduleStatus.last_run.stats.scanned_files ?? 0,
+                          missing: scheduleStatus.last_run.stats.missing_subtitle ?? 0,
+                          matched: scheduleStatus.last_run.stats.matched ?? 0,
+                          failed: scheduleStatus.last_run.stats.failed ?? 0,
+                        })}
+                    {!scheduleStatus.last_run.error && (scheduleStatus.last_run.stats.titles?.length ?? 0) > 0 && (
+                      <span>
+                        ；
+                        {t('page.settings.scheduleLastRunWorks', {
+                          titles: (scheduleStatus.last_run.stats.titles ?? []).join('、'),
+                          remaining: scheduleStatus.last_run.stats.remaining_works ?? 0,
+                        })}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={handleRunScheduleNow}
+                disabled={runScheduleNowMutation.isPending}
+                className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
+              >
+                {t('page.settings.scheduleRunNow')}
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-surface-container rounded-2xl p-8 transition-all duration-300 hover:bg-surface-container-high border border-outline-variant/10">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>
+                  notifications
+                </span>
+                <div>
+                  <h3 className="font-headline font-bold text-xl text-on-surface">{t('page.settings.feishuTitle')}</h3>
+                  <p className="text-xs text-on-surface-variant mt-1">{t('page.settings.feishuDescription')}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => handleToggleSetting('feishu_notify_enabled', feishuEnabled)}
+                className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                  feishuEnabled ? 'bg-primary' : 'bg-surface-container-highest'
+                }`}
+                title={t('page.settings.feishuEnabled')}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                    feishuEnabled ? 'translate-x-5' : ''
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={formValues['feishu_webhook_url'] ?? feishuWebhook}
+                  onChange={e => setFormValues(prev => ({ ...prev, feishu_webhook_url: e.target.value }))}
+                  placeholder={t('page.settings.feishuWebhookPlaceholder')}
+                  className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
+                />
+                <button
+                  onClick={() => handleSaveSetting('feishu_webhook_url')}
+                  className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
+                >
+                  {t('page.settings.save')}
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="password"
+                  value={formValues['feishu_webhook_secret'] ?? feishuSecret}
+                  onChange={e => setFormValues(prev => ({ ...prev, feishu_webhook_secret: e.target.value }))}
+                  placeholder={t('page.settings.feishuSecretPlaceholder')}
+                  className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
+                />
+                <button
+                  onClick={() => handleSaveSetting('feishu_webhook_secret')}
+                  className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
+                >
+                  {t('page.settings.save')}
+                </button>
+              </div>
+
+              <button
+                onClick={handleFeishuTest}
+                disabled={feishuTestMutation.isPending}
+                className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
+              >
+                {feishuTestMutation.isPending ? t('page.settings.feishuTestSending') : t('page.settings.feishuTest')}
+              </button>
+            </div>
           </div>
         </section>
 

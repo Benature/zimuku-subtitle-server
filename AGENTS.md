@@ -54,15 +54,17 @@ npm run lint
 
 ### 后端结构（`/app`）
 
-- **`app/api/`** - REST API 路由（media、search、tasks、settings、system）
+- **`app/api/`** - REST API 路由（media、search、tasks、settings、schedule、system）
 - **`app/core/`** - 核心业务逻辑
   - `scraper.py` - Zimuku 网页爬虫，实现三层递进匹配策略（搜索页 → 季详情页 → 兜底模式）
   - `archive.py` - ZIP/7z 压缩包解压，解决文件名乱码（CP437 → GBK）
   - `ocr.py` - 轻量级像素采样 OCR 引擎，用于验证码识别
   - `aligner.py` - 字幕音轨对齐引擎，封装 alass/ffsubsync 调用、ffmpeg 依赖检测与 UTF-8 编码规整
+  - `notifier.py` - 飞书自定义机器人通知（支持加签 secret），发送失败仅记录日志
   - `config.py` - 配置管理
 - **`app/db/`** - SQLModel 数据库模型与会话管理
-- **`app/services/`** - Service 服务层（MediaService、TaskService、SearchService、SystemService）
+- **`app/services/`** - Service 服务层（MediaService、TaskService、SearchService、SystemService、SchedulerService）
+  - `scheduler_service.py` - APScheduler 定时调度（cron 触发媒体库扫描 + 全库缺失字幕批量补全 + 飞书汇总通知），随 FastAPI lifespan 启停，配置变更自动 reload
 - **`app/mcp/`** - MCP 协议服务器实现
 - **`app/main.py`** - FastAPI 应用入口
 
@@ -111,6 +113,7 @@ Swagger 文档：`http://127.0.0.1:8000/docs`
 - `/tasks` - 任务管理（创建、重试、清理已完成）
 - `/settings` - 系统配置
 - `/system` - 系统统计与日志
+- `/schedule` - 定时任务（状态查询、立即执行一次、飞书测试通知）
 - `/health` - 健康检查
 
 ## MCP 集成
@@ -130,6 +133,7 @@ python -m app.mcp.run_stdio
 - 前端使用动态轮询频率（后台任务活跃时 2s，空闲时 10s）
 - 剧集季补全采用顺序执行模式（间隔 2s），避免并发导致封禁
 - 字幕下载完成后默认自动执行音轨对齐（设置项 `auto_align_after_download`，前端系统设置页可关闭；对齐前自动备份 `.orig` 原字幕，可随时还原；对齐失败仅记录日志，不影响任务状态）
+- 定时扫描补字幕：设置项 `schedule_enabled` / `schedule_cron`（默认每天 03:00），触发后先刷新媒体库，再对缺字幕的作品顺序补全（间隔 2s）；`schedule_max_works_per_run`（默认 1，0 表示不限）限制每次运行补全的作品数量，按缺字幕文件数降序选取、标题升序兜底；完成后可按 `feishu_notify_enabled` / `feishu_webhook_url` / `feishu_webhook_secret`（加签可选）推送飞书汇总通知（含本次补全作品与剩余待补数）；前端系统设置页有专属配置卡片，支持立即执行与发送测试通知
 - 修改代码后，按照需要修订文档；有功能修改需要看是否修改、添加对应的单元测试
 
 ## Docker 与 Compose 约定

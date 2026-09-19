@@ -34,14 +34,19 @@ async def lifespan(app: FastAPI):
 
     session_manager = create_session_manager()
     app.state.mcp_session_manager = session_manager
+
+    from .services.scheduler_service import scheduler_service
+
+    scheduler_service.start()
     async with session_manager.run():
         yield
 
+    scheduler_service.shutdown()
     del app.state.mcp_session_manager
     logger.info("正在关闭应用...")
 
 
-from .api import media, search, settings, system, tasks
+from .api import media, schedule, search, settings, system, tasks
 
 app = FastAPI(
     title="Zimuku Subtitle Server", description="独立的字幕管理与刮削服务", version="0.1.0", lifespan=lifespan
@@ -68,6 +73,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 app.include_router(search.router)
 app.include_router(settings.router)
+app.include_router(schedule.router)
 app.include_router(tasks.router)
 app.include_router(media.router)
 app.include_router(system.router)
