@@ -20,6 +20,61 @@ MEDIA_ROOT_TAGS = ["movie", "tvshow", "episodedetails"]
 TXT_METADATA_KEYS = {"title", "year", "plot", "description"}
 NFO_ALIAS_TAGS = ["sorttitle", "alternativetitle", "alternative_title", "alias", "aka"]
 
+# 常见国家/地区 -> 原始语言映射（启发式推断，键为小写）
+COUNTRY_LANGUAGE_MAP = {
+    "美国": "英语",
+    "usa": "英语",
+    "united states": "英语",
+    "united states of america": "英语",
+    "英国": "英语",
+    "uk": "英语",
+    "united kingdom": "英语",
+    "great britain": "英语",
+    "加拿大": "英语",
+    "canada": "英语",
+    "澳大利亚": "英语",
+    "australia": "英语",
+    "新西兰": "英语",
+    "new zealand": "英语",
+    "爱尔兰": "英语",
+    "ireland": "英语",
+    "日本": "日语",
+    "japan": "日语",
+    "韩国": "韩语",
+    "south korea": "韩语",
+    "korea": "韩语",
+    "中国大陆": "汉语",
+    "中国": "汉语",
+    "china": "汉语",
+    "台湾": "汉语",
+    "taiwan": "汉语",
+    "香港": "粤语",
+    "hong kong": "粤语",
+    "法国": "法语",
+    "france": "法语",
+    "德国": "德语",
+    "germany": "德语",
+    "意大利": "意大利语",
+    "italy": "意大利语",
+    "西班牙": "西班牙语",
+    "spain": "西班牙语",
+    "俄罗斯": "俄语",
+    "russia": "俄语",
+    "印度": "印地语",
+    "india": "印地语",
+    "泰国": "泰语",
+    "thailand": "泰语",
+}
+
+
+def infer_original_language(countries: list[str]) -> Optional[str]:
+    """Infer the original language from NFO country tags (heuristic)."""
+    for country in countries:
+        language = COUNTRY_LANGUAGE_MAP.get(country.strip().lower())
+        if language:
+            return language
+    return None
+
 
 def _is_searchable_folder(folder: Path) -> bool:
     return folder.exists() and folder.is_dir()
@@ -147,6 +202,8 @@ def _extract_nfo_metadata(content: str) -> dict:
         aliases.extend(get_all_text(target, tag))
     aliases = list(dict.fromkeys(alias for alias in aliases if alias))
 
+    countries = get_all_text(target, "country")
+
     metadata = {
         "title": get_text(target, "title"),
         "original_title": get_text(target, "originaltitle"),
@@ -160,6 +217,8 @@ def _extract_nfo_metadata(content: str) -> dict:
         "studio": get_text(target, "studio"),
         "mpaa": get_text(target, "mpaa"),
         "runtime": get_text(target, "runtime"),
+        "country": countries,
+        "original_language": infer_original_language(countries),
     }
 
     return {k: v for k, v in metadata.items() if v is not None}

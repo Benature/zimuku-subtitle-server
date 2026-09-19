@@ -90,6 +90,8 @@ export function MediaInfoCard({
   const displayYear = metadata?.nfo_data?.year || year;
   const rating = metadata?.nfo_data?.rating;
   const runtimeText = getRuntimeText(metadata?.nfo_data?.runtime);
+  const originalLanguage =
+    metadata?.nfo_data?.original_language ?? metadata?.nfo_data?.country?.join(' / ') ?? null;
 
   if (isLoading) {
     return <SkeletonLoader />;
@@ -120,6 +122,12 @@ export function MediaInfoCard({
                 <span className="material-symbols-outlined text-lg text-tertiary" style={{ fontVariationSettings: "'FILL' 1" }}>star</span>
                 {rating || '0.0'}
               </span>
+              {originalLanguage && (
+                <span className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-lg">language</span>
+                  {originalLanguage}
+                </span>
+              )}
               {isTv && count !== undefined && (
                 <span className="flex items-center gap-2">
                   <span className="material-symbols-outlined text-lg text-primary">layers</span>

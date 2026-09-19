@@ -45,6 +45,67 @@ def test_parse_nfo_xml_content():
         nfo_path.unlink()
 
 
+def test_parse_nfo_country_and_original_language():
+    """Test parsing NFO country tags and inferring original language"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".nfo", delete=False) as f:
+        f.write("""<?xml version="1.0" encoding="utf-8"?>
+<movie>
+    <title>Test Movie</title>
+    <country>美国</country>
+    <country>英国</country>
+</movie>""")
+        nfo_path = Path(f.name)
+
+    try:
+        result = MetadataService.parse_nfo(nfo_path)
+
+        assert result is not None
+        assert result["country"] == ["美国", "英国"]
+        assert result["original_language"] == "英语"
+    finally:
+        nfo_path.unlink()
+
+
+def test_parse_nfo_country_english_name():
+    """Test inferring original language from English country names"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".nfo", delete=False) as f:
+        f.write("""<?xml version="1.0" encoding="utf-8"?>
+<tvshow>
+    <title>Test Show</title>
+    <country>Japan</country>
+</tvshow>""")
+        nfo_path = Path(f.name)
+
+    try:
+        result = MetadataService.parse_nfo(nfo_path)
+
+        assert result is not None
+        assert result["country"] == ["Japan"]
+        assert result["original_language"] == "日语"
+    finally:
+        nfo_path.unlink()
+
+
+def test_parse_nfo_country_unmapped():
+    """Test NFO with unmapped country has no inferred original language"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".nfo", delete=False) as f:
+        f.write("""<?xml version="1.0" encoding="utf-8"?>
+<movie>
+    <title>Test Movie</title>
+    <country>Atlantis</country>
+</movie>""")
+        nfo_path = Path(f.name)
+
+    try:
+        result = MetadataService.parse_nfo(nfo_path)
+
+        assert result is not None
+        assert result["country"] == ["Atlantis"]
+        assert "original_language" not in result
+    finally:
+        nfo_path.unlink()
+
+
 def test_parse_nfo_gbk_encoding():
     """Test parsing NFO with GBK encoding"""
     with tempfile.NamedTemporaryFile(mode="wb", suffix=".nfo", delete=False) as f:

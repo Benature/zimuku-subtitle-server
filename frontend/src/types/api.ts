@@ -10,6 +10,8 @@ export interface MediaMetadata {
     genres?: string[];
     director?: string;
     runtime?: string;
+    country?: string[];
+    original_language?: string;
   } | null;
   poster_path: string | null;
   fanart_path: string | null;
