@@ -21,6 +21,11 @@
 | GET | `/media/files/{id}/subtitles` | 查询媒体文件已有字幕及实际语言分析（双语/单语判定与对白采样） | path: `id` |
 | GET | `/media/files/{id}/subtitles/content` | 读取媒体文件已有字幕的具体文本内容与对白 | path: `id`, `filename?`, `max_lines?`, `clean_text?` |
 | POST | `/media/files/{id}/download-subtitle` | 按详情页为媒体文件下载关联字幕并自动归档 | path: `id`, body: `source_url`, `title?`, `language?` |
+| POST | `/media/files/{id}/subtitles/trash` | 将媒体文件的字幕安全移入系统回收站（非永久删除，支持还原） | path: `id`, query/body: `filename?`, `subtitle_path?` |
+| POST | `/media/subtitles/trash` | 通用字幕移入回收站接口（支持 file_id+filename 或绝对路径定位） | body: `file_id?`, `filename?`, `subtitle_path?` |
+| GET | `/media/subtitles/trash` | 分页查询回收站字幕记录 | `file_id?`, `offset?`, `limit?`, `include_restored?` |
+| POST | `/media/subtitles/trash/restore` | 从回收站还原字幕至原视频目录 | body: `trash_id?` 或 `file_id?`+`filename?` 或 `subtitle_path?`, `overwrite?` |
+| POST | `/media/subtitles/trash/purge` | 按保留策略彻底删除过期回收站条目（默认保留 365 天，可在系统设置 `trash_retention_days` 中配置，0 表示永久保留） | body: `retention_days?`（可选覆盖系统配置） |
 
 ---
 
@@ -98,6 +103,29 @@ MCP 工具 `list_subtitle_languages` 返回上传可用的语言代码、显示�
 - `create_download_task`:
   创建通用字幕下载任务。支持传入 `file_id`，或在 `target_path` 中直接传入视频文件的完整路径（如 `/path/to/S02E04.mkv`），系统会自动解析视频基准名并移动归档。
 
+## MCP 字幕回收站（Trash）
+
+系统提供安全的字幕回收站机制：字幕文件被**移动**至独立回收站目录（默认 `storage/trash/subtitles/`，可通过环境变量 `ZIMUKU_TRASH_PATH` 覆盖），同时保留 `trashinfo.json` 元数据与 SQLite 记录（`SubtitleTrash` 表），支持查询与一键还原。**绝不执行永久删除（rm/unlink）**，也不会以永久删除冒充 trash。若存在音轨对齐的 `.orig` 原版备份，会一并移入回收站并在还原时一同恢复。
+
+回收站保留时长由系统设置项 `trash_retention_days` 控制（默认 **365 天**，0 表示永久保留），可在前端「设置 → 系统属性」页面直接修改，或通过 `/settings/` API / MCP `update_setting` 配置。每次移入新字幕时会自动按该策略清理过期条目，也可通过 `POST /media/subtitles/trash/purge` 或 MCP `purge_trashed_subtitles` 手动触发彻底删除。
+
+- `trash_subtitle` / `trash_media_subtitle`（别名，二者等价）:
+  将指定字幕安全移入系统回收站，返回 `trash_id`、回收站路径、剩余字幕列表与更新后的 `has_subtitle` 状态。
+  - 参数：`file_id`（可选，配合 `filename` 定位媒体字幕）, `filename`（多字幕时必填）, `subtitle_path`（可选，直接传字幕绝对路径，自动反查关联媒体）
+  - 二者至少需提供 `file_id` 或 `subtitle_path` 之一。
+
+- `list_trashed_subtitles`:
+  分页查询回收站中的字幕记录（默认仅返回未还原记录）。
+  - 参数：`file_id`（可选过滤）, `offset`, `limit`, `include_restored`（默认 false）
+
+- `restore_trashed_subtitle`:
+  将回收站中的字幕还原至原视频目录，若有 `.orig` 备份一并还原；目标位置已存在同名文件时需显式 `overwrite=true`。
+  - 参数：`trash_id`，或 `file_id` + `filename`，或 `subtitle_path`；`overwrite`（默认 false）
+
+- `purge_trashed_subtitles`:
+  按保留策略（系统配置 `trash_retention_days`，默认 365 天，0 表示永久保留）彻底删除回收站中过期的字幕文件与记录。
+  - 参数：`retention_days`（可选，覆盖系统配置）
+
 ---
 
 ## 快速示例
@@ -124,6 +152,16 @@ curl "http://127.0.0.1:8000/media/files/1/subtitles"
 
 # 读取已有字幕的内容与纯文本对白
 curl "http://127.0.0.1:8000/media/files/1/subtitles/content?clean_text=true&max_lines=50"
+
+# 将字幕安全移入回收站（非永久删除）
+curl -X POST "http://127.0.0.1:8000/media/files/1/subtitles/trash?filename=Movie.zh-CN.srt"
+
+# 查询回收站记录
+curl "http://127.0.0.1:8000/media/subtitles/trash?file_id=1"
+
+# 从回收站还原字幕
+curl -X POST "http://127.0.0.1:8000/media/subtitles/trash/restore" \
+  -H "Content-Type: application/json" -d '{"trash_id": 1}'
 
 # 下载字幕
 curl -X POST "http://127.0.0.1:8000/tasks/?title=xxx&source_url=https://www.zimuku.cn/..."

@@ -33,6 +33,12 @@ RUN pip install -r requirements.txt
 
 FROM python-base AS runtime-base
 
+RUN apk add --no-cache ffmpeg
+
+# 音轨对齐引擎：alass 静态二进制（仅 x86_64；其他架构可通过 ZIMUKU_ALASS_PATH 外挂）
+COPY docker/binaries/alass /usr/local/bin/alass
+RUN chmod +x /usr/local/bin/alass
+
 RUN addgroup -g 1000 -S appgroup && \
     adduser -u 1000 -S -D -h /home/appuser -s /sbin/nologin -G appgroup appuser
 

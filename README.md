@@ -188,6 +188,7 @@ The current MCP coverage includes:
 - Direct subtitle download and association for scanned media (`file_id`), with automatic renaming and language tagging
 - Existing subtitle inspection and content reading (with automatic language detection, bilingual verification, and dialogue sampling)
 - Base64 subtitle upload for individual files and ZIP/7z archives
+- Safe subtitle trash (`trash_subtitle` / `trash_media_subtitle`): moves subtitles into a dedicated trash directory with metadata (`trashinfo.json`) and database records, supports listing and one-click restore — never a permanent delete in disguise; retention is configurable (`trash_retention_days`, default 365 days, 0 = keep forever) and expired entries are purged automatically or manually (`purge_trashed_subtitles`)
 - Read-only subtitle language catalog lookup
 - Media library path management, hierarchical media listing (movie/show/season/episode) with NFO title and alias search, scanned file listing, library scan, and auto-match
 - Download task creation, lookup, pagination, retry, deletion, and cleanup

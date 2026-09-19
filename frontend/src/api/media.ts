@@ -1,6 +1,14 @@
 import { API_BASE } from '../lib/config';
 import { API_ENDPOINTS } from '../lib/config';
-import type { MediaMetadata, MediaPath, ScannedFile, TaskStatus } from '../types/api';
+import type {
+  AlignerStatus,
+  ExistingSubtitle,
+  MediaMetadata,
+  MediaPath,
+  ScannedFile,
+  SubtitleAlignResponse,
+  TaskStatus,
+} from '../types/api';
 import { getData, postData, deleteData } from './shared';
 
 export async function fetchMediaMetadata(fileId: number): Promise<MediaMetadata> {
@@ -49,4 +57,32 @@ export async function getTaskStatus(): Promise<TaskStatus> {
 
 export function getMediaPosterUrl(posterPath: string): string {
   return `${API_BASE}${API_ENDPOINTS.MEDIA_POSTER}?path=${encodeURIComponent(posterPath)}`;
+}
+
+export async function fetchExistingSubtitles(fileId: number): Promise<ExistingSubtitle[]> {
+  return getData(API_ENDPOINTS.MEDIA_SUBTITLES(fileId));
+}
+
+export async function fetchAlignerStatus(): Promise<AlignerStatus> {
+  return getData(API_ENDPOINTS.MEDIA_ALIGNER_STATUS);
+}
+
+export async function alignMediaSubtitle(
+  fileId: number,
+  filename?: string,
+  splitPenalty = 7.0,
+): Promise<SubtitleAlignResponse> {
+  return postData(API_ENDPOINTS.MEDIA_ALIGN_SUBTITLE(fileId), {
+    filename,
+    split_penalty: splitPenalty,
+  });
+}
+
+export async function restoreMediaSubtitle(
+  fileId: number,
+  filename: string,
+): Promise<SubtitleAlignResponse> {
+  return postData(API_ENDPOINTS.MEDIA_RESTORE_SUBTITLE(fileId), {
+    filename,
+  });
 }

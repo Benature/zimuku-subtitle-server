@@ -109,3 +109,36 @@ export interface SidebarItem {
 export type SortOption = 'name' | 'year' | 'created' | 'status';
 export type FilterOption = 'all' | 'missing';
 export type SortOrder = 'asc' | 'desc';
+
+// Subtitle & Alignment Types
+export interface ExistingSubtitle {
+  filename: string;
+  file_path: string;
+  format: string;
+  size_bytes: number;
+  modified_at: string;
+  filename_language?: string | null;
+  is_binary: boolean;
+  detected_language: string;
+  detected_language_name: string;
+  is_bilingual: boolean;
+  encoding: string;
+  has_backup: boolean;
+  backup_filename?: string | null;
+}
+
+export interface AlignerStatus {
+  available: boolean;
+  engine?: string | null;
+  ffmpeg_available: boolean;
+  message: string;
+}
+
+export interface SubtitleAlignResponse {
+  status: string;
+  message: string;
+  file_id?: number | null;
+  subtitle_filename: string;
+  backup_filename?: string | null;
+  has_backup: boolean;
+}

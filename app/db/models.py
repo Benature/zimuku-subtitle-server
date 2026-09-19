@@ -75,3 +75,20 @@ class ScannedFile(SQLModel, table=True):
     has_subtitle: bool = Field(default=False)
     series_root_path: Optional[str] = Field(default=None)  # TV series root directory
     created_at: datetime = Field(default_factory=datetime.now)
+
+
+class SubtitleTrash(SQLModel, table=True):
+    """字幕回收站记录表（安全保存已回收的字幕文件与元数据，支持还原）"""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    file_id: Optional[int] = Field(default=None, index=True, foreign_key="scannedfile.id")
+    media_filename: Optional[str] = None
+    subtitle_filename: str
+    original_path: str = Field(index=True)
+    trash_path: str
+    backup_original_path: Optional[str] = None
+    backup_trash_path: Optional[str] = None
+    size_bytes: int = 0
+    trashed_at: datetime = Field(default_factory=datetime.now)
+    is_restored: bool = Field(default=False)
+    restored_at: Optional[datetime] = None

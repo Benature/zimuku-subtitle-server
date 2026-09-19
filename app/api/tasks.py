@@ -5,9 +5,16 @@ from sqlmodel import Session
 
 from ..db.models import SubtitleTask
 from ..db.session import get_session
+from ..services.subtitle_align_service import SubtitleAlignService
 from ..services.task_service import TaskService
 from .errors import raise_for_service_error
-from .schemas import ActionResponse, TaskCreateRequest, TaskListResponse
+from .schemas import (
+    ActionResponse,
+    SubtitleAlignRequest,
+    SubtitleAlignResponse,
+    TaskCreateRequest,
+    TaskListResponse,
+)
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
@@ -143,3 +150,21 @@ async def clear_completed_tasks(session: Session = Depends(get_session)) -> Acti
     """清理已完成的任务记录"""
     cleared = TaskService.clear_completed(session)
     return ActionResponse(message=f"Cleared {cleared} completed tasks", cleared_count=cleared)
+
+
+@router.post("/{task_id}/align-subtitle", response_model=SubtitleAlignResponse)
+async def align_task_subtitle(
+    task_id: int,
+    payload: Optional[SubtitleAlignRequest] = Body(default=None),
+    session: Session = Depends(get_session),
+) -> SubtitleAlignResponse:
+    """对下载完成的任务字幕执行音轨对齐"""
+    try:
+        split_penalty = payload.split_penalty if payload else 7.0
+        return await SubtitleAlignService.align_task_subtitle(
+            session=session,
+            task_id=task_id,
+            split_penalty=split_penalty,
+        )
+    except Exception as exc:
+        raise_for_service_error(exc)

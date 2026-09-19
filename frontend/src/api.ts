@@ -12,4 +12,7 @@ export type {
   SortOrder,
   Task,
   TaskStatus,
+  ExistingSubtitle,
+  AlignerStatus,
+  SubtitleAlignResponse,
 } from './types/api';

@@ -41,6 +41,8 @@ class ExistingSubtitleInfo:
     sample_dialogues: list[str]
     confidence: float
     details: dict[str, Any]
+    has_backup: bool = False
+    backup_filename: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -188,6 +190,8 @@ class SubtitleInspectionService:
             try:
                 for item in search_dir.iterdir():
                     if item.is_file() and item.suffix.lower() in SUBTITLE_EXTENSIONS:
+                        if item.stem.lower().endswith(".orig"):
+                            continue
                         if item.stem.lower().startswith(video_stem):
                             subtitles.append(item)
             except OSError:
@@ -205,6 +209,9 @@ class SubtitleInspectionService:
         is_binary = suffix == ".sup"
 
         analysis: LanguageAnalysisResult = SubtitleDetector.analyze_file(sub_path)
+        backup_path = sub_path.with_name(f"{sub_path.stem}.orig{sub_path.suffix}")
+        has_backup = backup_path.is_file()
+        backup_filename = backup_path.name if has_backup else None
 
         return ExistingSubtitleInfo(
             filename=sub_path.name,
@@ -224,4 +231,6 @@ class SubtitleInspectionService:
             sample_dialogues=analysis.sample_dialogues,
             confidence=analysis.confidence,
             details=analysis.details,
+            has_backup=has_backup,
+            backup_filename=backup_filename,
         )

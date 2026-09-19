@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
-_TEST_RUNTIME_DIR = _PROJECT_ROOT / ".tmp" / "test-runtime"
+# 使用进程级隔离目录，避免并发 pytest 运行相互删除对方的数据库文件
+_TEST_RUNTIME_DIR = _PROJECT_ROOT / ".tmp" / f"test-runtime-{os.getpid()}"
 shutil.rmtree(_TEST_RUNTIME_DIR, ignore_errors=True)
 _TEST_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 

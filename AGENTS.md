@@ -59,6 +59,7 @@ npm run lint
   - `scraper.py` - Zimuku 网页爬虫，实现三层递进匹配策略（搜索页 → 季详情页 → 兜底模式）
   - `archive.py` - ZIP/7z 压缩包解压，解决文件名乱码（CP437 → GBK）
   - `ocr.py` - 轻量级像素采样 OCR 引擎，用于验证码识别
+  - `aligner.py` - 字幕音轨对齐引擎，封装 alass/ffsubsync 调用、ffmpeg 依赖检测与 UTF-8 编码规整
   - `config.py` - 配置管理
 - **`app/db/`** - SQLModel 数据库模型与会话管理
 - **`app/services/`** - Service 服务层（MediaService、TaskService、SearchService、SystemService）
@@ -81,6 +82,7 @@ npm run lint
 - `SubtitleTask` - 后台下载任务
 - `MediaPath` - 媒体扫描目录
 - `ScannedFile` - 已扫描的视频文件
+- `SubtitleTrash` - 字幕回收站记录（安全移入回收站的文件、元数据与还原状态）
 
 ## 核心工作流
 
@@ -104,7 +106,7 @@ npm run lint
 基础 URL：`http://127.0.0.1:8000`
 Swagger 文档：`http://127.0.0.1:8000/docs`
 
-- `/media` - 媒体库管理（路径、文件、自动匹配）
+- `/media` - 媒体库管理（路径、文件、自动匹配、字幕音轨对齐与还原）
 - `/search` - 字幕搜索（带 SQLite 缓存）
 - `/tasks` - 任务管理（创建、重试、清理已完成）
 - `/settings` - 系统配置
@@ -123,8 +125,8 @@ python -m app.mcp.run_stdio
 
 - Python 开发必须使用 `.venv` 虚拟环境
 - 运行测试前必须先执行 `ruff check` 和 `ruff format`
-- 测试必须使用隔离运行目录 `.tmp/test-runtime`，不得连接真实 `storage/zimuku.db` 或写入真实 `storage/` 目录
-- 测试产生的数据库、下载文件、日志等临时数据应仅落在 `.tmp/test-runtime`，测试结束后应自动清理，不得在项目根目录留下残留文件
+- 测试必须使用隔离运行目录 `.tmp/test-runtime-<pid>`（按进程隔离，避免并发 pytest 互相干扰），不得连接真实 `storage/zimuku.db` 或写入真实 `storage/` 目录
+- 测试产生的数据库、下载文件、日志等临时数据应仅落在 `.tmp/test-runtime-<pid>`，测试结束后应自动清理，不得在项目根目录留下残留文件
 - 前端使用动态轮询频率（后台任务活跃时 2s，空闲时 10s）
 - 剧集季补全采用顺序执行模式（间隔 2s），避免并发导致封禁
 - 修改代码后，按照需要修订文档；有功能修改需要看是否修改、添加对应的单元测试
@@ -140,6 +142,7 @@ python -m app.mcp.run_stdio
 - 开发模式应叠加 [`docker-compose.develop.yml`](docker-compose.develop.yml)，只覆盖与正式配置不同的部分，例如 develop target、源码挂载和调试日志
 - 生产和测试环境变量分别参考 `.env.production.example` 与 `.env.test.example`
 - 媒体库目录应通过 Compose `volumes` 挂载到容器内；在应用中配置媒体路径时，应填写容器内路径而不是宿主机原始路径
+- 音轨对齐依赖：镜像内置 `ffmpeg`（apk）与 `alass` 静态二进制（`docker/binaries/alass`，v2.0.0，x86_64）；升级 alass 时直接替换该二进制文件。其他架构可通过环境变量 `ZIMUKU_ALASS_PATH` / `ZIMUKU_FFMPEG_PATH` 指定外部工具路径
 - 修改 Dockerfile、Compose 文件或环境模板后，至少执行以下校验：
   - `docker compose config`
   - 相关镜像的 `docker compose build` 或 `docker build --target ...`

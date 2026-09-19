@@ -133,7 +133,9 @@
     "refresh": "Refresh",
     "save": "Save",
     "close": "Close",
-    "back": "Back"
+    "back": "Back",
+    "align": "Align Subtitle",
+    "manageSubtitles": "Manage Subtitles"
   },
   "mediaConfig": {
     "directoryConfig": "Directory Config",
@@ -205,6 +207,25 @@
     "deleteTask": "Are you sure you want to delete this task?",
     "deletePath": "Are you sure you want to delete this path? (Related scan records will also be deleted)",
     "clearCompleted": "Are you sure you want to clear all completed task records?"
+  },
+  "subtitles": {
+    "manageTitle": "Subtitles & Audio Alignment",
+    "align": "Align",
+    "aligning": "Aligning audio...",
+    "aligned": "Aligned",
+    "restore": "Restore",
+    "restoring": "Restoring...",
+    "restoreConfirm": "Are you sure you want to restore '{{filename}}' to its original unaligned version?",
+    "noSubtitles": "No associated subtitles found for this video",
+    "alignSuccess": "Subtitle aligned successfully!",
+    "restoreSuccess": "Restored to original subtitle!",
+    "toolUnavailable": "Alignment tool unavailable (please ensure ffmpeg and alass are installed)",
+    "format": "Format",
+    "encoding": "Encoding",
+    "language": "Language",
+    "size": "Size",
+    "actions": "Actions",
+    "hasBackup": "Backup Exists"
   },
   "movie": "Movie",
   "tv": "TV Series"

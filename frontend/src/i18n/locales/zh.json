@@ -133,7 +133,9 @@
     "refresh": "刷新",
     "save": "保存",
     "close": "关闭",
-    "back": "返回"
+    "back": "返回",
+    "align": "音轨对齐",
+    "manageSubtitles": "管理字幕"
   },
   "mediaConfig": {
     "directoryConfig": "目录配置",
@@ -205,6 +207,25 @@
     "deleteTask": "确定要删除此任务吗？",
     "deletePath": "确定要删除此路径吗？（相关的扫描记录也会被删除）",
     "clearCompleted": "确定要清理所有已完成的任务记录吗？"
+  },
+  "subtitles": {
+    "manageTitle": "字幕与音轨管理",
+    "align": "音轨对齐",
+    "aligning": "正在对齐音轨...",
+    "aligned": "已对齐",
+    "restore": "还原原版",
+    "restoring": "正在还原...",
+    "restoreConfirm": "确定要将字幕「{{filename}}」还原为其最初的未对齐版本吗？",
+    "noSubtitles": "该视频暂未找到关联的字幕文件",
+    "alignSuccess": "音轨对齐成功！",
+    "restoreSuccess": "已成功还原为原始字幕！",
+    "toolUnavailable": "音轨对齐组件未就绪（请确认已安装 ffmpeg 与 alass）",
+    "format": "格式",
+    "encoding": "编码",
+    "language": "语言",
+    "size": "大小",
+    "actions": "操作",
+    "hasBackup": "已备份原版"
   },
   "movie": "电影",
   "tv": "剧集"

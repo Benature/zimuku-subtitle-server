@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { RefreshCw, Trash2, CheckCircle2, XCircle, Clock, Save, History, Terminal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { Task } from '../api';
+import { alignTaskSubtitle, type Task } from '../api';
 import {
   useClearCompletedTasksMutation,
   useDeleteTaskMutation,
@@ -78,6 +79,21 @@ export default function TasksPage() {
   const clearCompletedTasksMutation = useClearCompletedTasksMutation();
   const tasks = tasksQuery.data?.items ?? [];
   const loading = tasksQuery.isLoading;
+  const [aligningTaskId, setAligningTaskId] = useState<number | null>(null);
+
+  const handleAlignTask = async (id: number): Promise<void> => {
+    setAligningTaskId(id);
+    try {
+      const res = await alignTaskSubtitle(id);
+      alert(res.message || t('subtitles.alignSuccess'));
+      await tasksQuery.refetch();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(t('mediaConfig.triggerFailed') + ': ' + msg);
+    } finally {
+      setAligningTaskId(null);
+    }
+  };
 
   const handleDelete = async (id: number): Promise<void> => {
     if (!window.confirm(t('confirm.deleteTask'))) return;
@@ -171,6 +187,20 @@ export default function TasksPage() {
                 </div>
 
                 <div className="flex items-center gap-3 relative z-10 ml-6">
+                  {task.status === 'completed' && (
+                    <button
+                      onClick={() => handleAlignTask(task.id)}
+                      disabled={aligningTaskId === task.id}
+                      className="w-10 h-10 flex items-center justify-center rounded-xl bg-primary/10 text-primary hover:bg-primary hover:text-on-primary transition-all duration-300 shadow-lg shadow-primary/10 disabled:opacity-50"
+                      title={t('subtitles.align')}
+                    >
+                      {aligningTaskId === task.id ? (
+                        <RefreshCw className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <span className="material-symbols-outlined text-xl">graphic_eq</span>
+                      )}
+                    </button>
+                  )}
                   {task.status === 'failed' && (
                     <button
                       onClick={() => handleRetry(task.id)}

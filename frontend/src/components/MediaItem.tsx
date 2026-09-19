@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { autoMatchFile, type ScannedFile, type TaskStatus } from '../api';
 import { getMediaTitle } from '../lib/mediaUtils';
+import { SubtitleManagerModal } from './SubtitleManagerModal';
 
 interface MediaItemProps {
   file: ScannedFile;
@@ -68,6 +70,7 @@ export function MediaItem({
 }: MediaItemProps): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [manageModalOpen, setManageModalOpen] = useState(false);
   const isMatching = status.matching_files.includes(file.id);
   const hasSubtitle = file.has_subtitle;
   const { backgroundClass, borderClass, iconClass } = getMediaItemTone(hasSubtitle, isMatching);
@@ -136,6 +139,15 @@ export function MediaItem({
           >
             <span className="material-symbols-outlined text-xl">search</span>
           </button>
+          {hasSubtitle && (
+            <button
+              onClick={() => setManageModalOpen(true)}
+              className="w-10 h-10 flex items-center justify-center rounded-md hover:bg-surface-container-highest text-on-surface-variant hover:text-primary transition-colors tooltip"
+              title={t('subtitles.manageTitle')}
+            >
+              <span className="material-symbols-outlined text-xl">graphic_eq</span>
+            </button>
+          )}
           {!hasSubtitle && !isMatching && (
             <button
               onClick={handleAutoSearch}
@@ -151,6 +163,12 @@ export function MediaItem({
           {badgeLabel}
         </span>
       </div>
+
+      <SubtitleManagerModal
+        isOpen={manageModalOpen}
+        onClose={() => setManageModalOpen(false)}
+        file={file}
+      />
     </div>
   );
 }

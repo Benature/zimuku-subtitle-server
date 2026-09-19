@@ -15,9 +15,11 @@ class SettingKey:
     BASE_URL = "base_url"
     PROXY = "proxy"
     CACHE_EXPIRY_HOURS = "cache_expiry_hours"
+    TRASH_RETENTION_DAYS = "trash_retention_days"
     DOWNLOAD_PATH = "download_path"
     TEMP_PATH = "temp_path"
     EXTRACTED_PATH = "extracted_path"
+    TRASH_PATH = "trash_path"
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,7 @@ class StoragePaths:
     temp: str
     extracted: str
     database: str
+    trash: str
 
 
 SETTINGS_DEFINITIONS = {
@@ -54,12 +57,19 @@ SETTINGS_DEFINITIONS = {
         description="搜索缓存有效期（小时）",
         kind="int",
     ),
+    SettingKey.TRASH_RETENTION_DAYS: SettingDefinition(
+        key=SettingKey.TRASH_RETENTION_DAYS,
+        default="365",
+        description="字幕回收站保留时长（天），过期后将彻底删除；0 表示永久保留",
+        kind="int",
+    ),
 }
 
 PATH_ENV_MAP = {
     SettingKey.DOWNLOAD_PATH: "ZIMUKU_DOWNLOAD_PATH",
     SettingKey.TEMP_PATH: "ZIMUKU_TEMP_PATH",
     SettingKey.EXTRACTED_PATH: "ZIMUKU_EXTRACTED_PATH",
+    SettingKey.TRASH_PATH: "ZIMUKU_TRASH_PATH",
 }
 
 
@@ -103,6 +113,10 @@ def get_storage_paths() -> StoragePaths:
         os.path.join(storage_root, "extracted"),
     )
     database = _get_optional_env_path("ZIMUKU_DB_PATH", os.path.join(storage_root, "zimuku.db"))
+    trash = _get_optional_env_path(
+        PATH_ENV_MAP[SettingKey.TRASH_PATH],
+        os.path.join(storage_root, "trash"),
+    )
 
     return StoragePaths(
         root=storage_root,
@@ -110,6 +124,7 @@ def get_storage_paths() -> StoragePaths:
         temp=temp,
         extracted=extracted,
         database=database,
+        trash=trash,
     )
 
 
@@ -195,6 +210,7 @@ class ConfigManager:
             SettingKey.DOWNLOAD_PATH: paths.downloads,
             SettingKey.TEMP_PATH: paths.temp,
             SettingKey.EXTRACTED_PATH: paths.extracted,
+            SettingKey.TRASH_PATH: paths.trash,
         }
         env_name = PATH_ENV_MAP.get(key)
         if env_name and os.getenv(env_name):
@@ -227,6 +243,15 @@ class ConfigManager:
                 raise ValueError("cache_expiry_hours 必须是整数") from exc
             if numeric_value <= 0:
                 raise ValueError("cache_expiry_hours 必须大于 0")
+            return str(numeric_value)
+
+        if key == SettingKey.TRASH_RETENTION_DAYS:
+            try:
+                numeric_value = int(normalized)
+            except ValueError as exc:
+                raise ValueError("trash_retention_days 必须是整数") from exc
+            if numeric_value < 0:
+                raise ValueError("trash_retention_days 必须大于等于 0（0 表示永久保留）")
             return str(numeric_value)
 
         return normalized
@@ -268,6 +293,11 @@ def get_temp_path() -> str:
 
 def get_extracted_path() -> str:
     return ConfigManager.get_path(SettingKey.EXTRACTED_PATH)
+
+
+def get_trash_path() -> str:
+    """获取字幕回收站存储路径"""
+    return _ensure_directory(get_storage_paths().trash)
 
 
 def get_database_path() -> str:

@@ -21,6 +21,7 @@ from ..services.media_service import MediaService, global_task_status
 from ..services.search_service import SearchService
 from ..services.settings_service import SettingsService
 from ..services.subtitle_inspection_service import SubtitleInspectionError, SubtitleInspectionService
+from ..services.subtitle_trash_service import SubtitleTrashService
 from ..services.subtitle_upload_service import SubtitleUploadError, SubtitleUploadService
 from ..services.system_service import SystemService
 from ..services.task_service import TaskService
@@ -356,6 +357,97 @@ def _media_tools() -> list[types.Tool]:
                     },
                 },
                 "required": ["file_id", "source_url"],
+            },
+        ),
+        types.Tool(
+            name="trash_subtitle",
+            description=(
+                "将媒体文件的已有字幕安全移入系统回收站（Trash）。"
+                "严格采用可逆的回收站安全机制，保留文件与元数据，支持随时还原，绝不执行直接永久删除（rm/unlink）。"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_id": {
+                        "type": "integer",
+                        "description": "已扫描媒体文件 ID（当通过媒体定位字幕时使用）",
+                        "minimum": 1,
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "字幕文件名（若媒体关联多个字幕时必填，单个字幕时可省略）",
+                    },
+                    "subtitle_path": {
+                        "type": "string",
+                        "description": "字幕文件的绝对路径（可直接指定字幕路径）",
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="trash_media_subtitle",
+            description="将媒体文件的已有字幕安全移入系统回收站（同 trash_subtitle）",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_id": {
+                        "type": "integer",
+                        "description": "已扫描媒体文件 ID（当通过媒体定位字幕时使用）",
+                        "minimum": 1,
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "字幕文件名（若媒体关联多个字幕时必填，单个字幕时可省略）",
+                    },
+                    "subtitle_path": {
+                        "type": "string",
+                        "description": "字幕文件的绝对路径（可直接指定字幕路径）",
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="restore_trashed_subtitle",
+            description="从系统回收站中还原此前移入回收站的字幕文件至原视频目录",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "trash_id": {"type": "integer", "description": "回收站记录 ID"},
+                    "file_id": {"type": "integer", "description": "已扫描媒体文件 ID"},
+                    "filename": {"type": "string", "description": "原始字幕文件名"},
+                    "subtitle_path": {"type": "string", "description": "原始字幕文件绝对路径"},
+                    "overwrite": {"type": "boolean", "description": "若目标已存在是否覆盖", "default": False},
+                },
+            },
+        ),
+        types.Tool(
+            name="list_trashed_subtitles",
+            description="查询系统回收站中的字幕记录列表",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_id": {"type": "integer", "description": "媒体文件 ID 过滤"},
+                    "offset": {"type": "integer", "minimum": 0, "default": 0},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50},
+                    "include_restored": {"type": "boolean", "description": "是否包含已还原记录", "default": False},
+                },
+            },
+        ),
+        types.Tool(
+            name="purge_trashed_subtitles",
+            description=(
+                "按保留策略彻底删除回收站中过期的字幕条目（文件与记录）。"
+                "保留天数由系统配置 trash_retention_days 决定（默认 365 天，0 表示永久保留）。"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "retention_days": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "可选，覆盖系统配置的保留天数；0 表示永久保留（不清理任何条目）",
+                    },
+                },
             },
         ),
     ]
@@ -719,6 +811,100 @@ async def _handle_media_tool(name: str, arguments: dict[str, Any]) -> List[types
         except Exception as exc:
             logger.exception("下载关联字幕发生未预期错误")
             return _error(f"下载关联字幕失败: {exc}")
+
+    if name in ("trash_subtitle", "trash_media_subtitle"):
+        file_id = arguments.get("file_id")
+        filename = arguments.get("filename")
+        subtitle_path = arguments.get("subtitle_path")
+        if file_id is None and not subtitle_path:
+            return _error("必须提供 file_id 或 subtitle_path 参数以指定待移入回收站的字幕")
+        try:
+            with Session(engine) as session:
+                result = SubtitleTrashService.trash_subtitle(
+                    session=session,
+                    file_id=file_id,
+                    filename=filename,
+                    subtitle_path=subtitle_path,
+                )
+            return _success("字幕已安全移入系统回收站（非永久删除，支持还原）：", result.to_dict())
+        except (SubtitleInspectionError, ValueError, LookupError) as exc:
+            return _error(f"移入回收站失败: {exc}")
+        except Exception as exc:
+            logger.exception("移入回收站发生未预期错误")
+            return _error(f"移入回收站失败: {exc}")
+
+    if name == "restore_trashed_subtitle":
+        trash_id = arguments.get("trash_id")
+        file_id = arguments.get("file_id")
+        filename = arguments.get("filename")
+        subtitle_path = arguments.get("subtitle_path")
+        overwrite = bool(arguments.get("overwrite", False))
+        if trash_id is None and not subtitle_path and (file_id is None or not filename):
+            return _error("必须提供 trash_id、subtitle_path 或 (file_id + filename) 参数以定位待还原的字幕")
+        try:
+            with Session(engine) as session:
+                result = SubtitleTrashService.restore_subtitle(
+                    session=session,
+                    trash_id=trash_id,
+                    file_id=file_id,
+                    filename=filename,
+                    subtitle_path=subtitle_path,
+                    overwrite=overwrite,
+                )
+            return _success("字幕已从回收站成功还原：", result.to_dict())
+        except (SubtitleInspectionError, ValueError, LookupError) as exc:
+            return _error(f"从回收站还原失败: {exc}")
+        except Exception as exc:
+            logger.exception("从回收站还原发生未预期错误")
+            return _error(f"从回收站还原失败: {exc}")
+
+    if name == "list_trashed_subtitles":
+        file_id = arguments.get("file_id")
+        offset = arguments.get("offset", 0)
+        limit = arguments.get("limit", 50)
+        include_restored = bool(arguments.get("include_restored", False))
+        try:
+            with Session(engine) as session:
+                items, total = SubtitleTrashService.list_trashed(
+                    session=session,
+                    file_id=file_id,
+                    offset=offset,
+                    limit=limit,
+                    include_restored=include_restored,
+                )
+            serialized = [
+                {
+                    "id": item.id,
+                    "file_id": item.file_id,
+                    "media_filename": item.media_filename,
+                    "subtitle_filename": item.subtitle_filename,
+                    "original_path": item.original_path,
+                    "trash_path": item.trash_path,
+                    "backup_original_path": item.backup_original_path,
+                    "size_bytes": item.size_bytes,
+                    "trashed_at": item.trashed_at.isoformat() if item.trashed_at else "",
+                    "is_restored": item.is_restored,
+                    "restored_at": item.restored_at.isoformat() if item.restored_at else None,
+                }
+                for item in items
+            ]
+            return _success(
+                "回收站字幕记录列表：",
+                {"total": total, "offset": offset, "limit": limit, "items": serialized},
+            )
+        except Exception as exc:
+            logger.exception("查询回收站记录发生未预期错误")
+            return _error(f"查询回收站记录失败: {exc}")
+
+    if name == "purge_trashed_subtitles":
+        retention_days = arguments.get("retention_days")
+        try:
+            with Session(engine) as session:
+                result = SubtitleTrashService.purge_expired(session=session, retention_days=retention_days)
+            return _success("回收站过期条目清理完成：", result.to_dict())
+        except Exception as exc:
+            logger.exception("清理回收站过期条目发生未预期错误")
+            return _error(f"清理回收站过期条目失败: {exc}")
 
     return None
 

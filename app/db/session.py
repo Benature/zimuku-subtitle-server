@@ -1,6 +1,7 @@
 import os
 from contextlib import contextmanager
 
+from sqlalchemy import event
 from sqlmodel import Session, SQLModel, create_engine
 
 from ..core.config import ConfigManager, get_database_path
@@ -21,7 +22,19 @@ def _get_sqlite_url() -> str:
 sqlite_url = _get_sqlite_url()
 
 # 连接池设置 (对于 SQLite 主要是为了在多线程/多协程下稳定运行)
-engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
+engine = create_engine(
+    sqlite_url,
+    connect_args={"check_same_thread": False, "timeout": 30},
+)
+
+
+@event.listens_for(engine, "connect")
+def _set_sqlite_pragma(dbapi_connection, connection_record):
+    if engine.dialect.name == "sqlite":
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.close()
+
 
 NFO_SEARCH_COLUMNS = {
     "nfo_title": "VARCHAR",
@@ -78,19 +91,17 @@ def _migrate_subtitle_task_columns():
 
 
 def _init_default_settings():
-    """初始化默认配置项到数据库"""
+    """初始化默认配置项到数据库（仅补充缺失的键，不覆盖已有配置）"""
     from sqlmodel import select
 
     from .models import Setting
 
     with Session(engine) as session:
-        # 检查是否已有配置项
-        existing = session.exec(select(Setting)).first()
-        if existing:
+        existing_keys = set(session.exec(select(Setting.key)).all())
+        default_settings = [s for s in ConfigManager.default_settings() if s.key not in existing_keys]
+        if not default_settings:
             return
 
-        # 插入默认配置项
-        default_settings = ConfigManager.default_settings()
         for setting in default_settings:
             session.add(setting)
         session.commit()

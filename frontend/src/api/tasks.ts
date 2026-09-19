@@ -1,5 +1,5 @@
 import { API_ENDPOINTS } from '../lib/config';
-import type { Task } from '../types/api';
+import type { SubtitleAlignResponse, Task } from '../types/api';
 import { deleteData, getData, postData } from './shared';
 
 export async function listTasks(): Promise<{ items: Task[] }> {
@@ -37,5 +37,14 @@ export async function createDownloadTask(
       episode,
       language,
     },
+  });
+}
+
+export async function alignTaskSubtitle(
+  taskId: number,
+  splitPenalty = 7.0
+): Promise<SubtitleAlignResponse> {
+  return postData(API_ENDPOINTS.TASK_ALIGN_SUBTITLE(taskId), {
+    split_penalty: splitPenalty,
   });
 }
