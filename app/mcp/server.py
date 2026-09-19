@@ -20,6 +20,7 @@ from ..db.session import create_db_and_tables, engine
 from ..services.media_service import MediaService, global_task_status
 from ..services.search_service import SearchService
 from ..services.settings_service import SettingsService
+from ..services.subtitle_align_service import SubtitleAlignService
 from ..services.subtitle_inspection_service import SubtitleInspectionError, SubtitleInspectionService
 from ..services.subtitle_trash_service import SubtitleTrashService
 from ..services.subtitle_upload_service import SubtitleUploadError, SubtitleUploadService
@@ -334,6 +335,56 @@ def _media_tools() -> list[types.Tool]:
                         "type": "boolean",
                         "description": "是否清理时间轴和样式代码，返回纯对白文本（默认 true）",
                         "default": True,
+                    },
+                },
+                "required": ["file_id"],
+            },
+        ),
+        types.Tool(
+            name="align_subtitle",
+            description=(
+                "手动触发指定媒体文件字幕的音轨对齐（基于 alass 引擎分析视频音轨并校正字幕时间轴）。"
+                "对齐前会自动备份原字幕为 .orig 文件，可通过 restore 方式还原。"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_id": {"type": "integer", "description": "已扫描媒体文件 ID", "minimum": 1},
+                    "filename": {
+                        "type": "string",
+                        "description": "字幕文件名（当媒体关联多个字幕时必填，单个字幕时可省略）",
+                    },
+                    "split_penalty": {
+                        "type": "number",
+                        "description": "alass 拆分惩罚系数（0.01-1000，默认 7；越大越倾向整体平移）",
+                        "default": 7.0,
+                        "minimum": 0,
+                        "maximum": 1000,
+                    },
+                },
+                "required": ["file_id"],
+            },
+        ),
+        types.Tool(
+            name="check_subtitle_alignment",
+            description=(
+                "检查指定媒体文件的字幕与音轨是否已对齐，返回 aligned 判定结果及最大/平均时间偏移量（毫秒）。"
+                "该操作不会修改字幕文件。"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_id": {"type": "integer", "description": "已扫描媒体文件 ID", "minimum": 1},
+                    "filename": {
+                        "type": "string",
+                        "description": "字幕文件名（当媒体关联多个字幕时必填，单个字幕时可省略）",
+                    },
+                    "threshold_ms": {
+                        "type": "number",
+                        "description": "对齐判定阈值（毫秒，默认 100：最大偏移不超过该值即判定为已对齐）",
+                        "default": 100.0,
+                        "minimum": 0,
+                        "maximum": 60000,
                     },
                 },
                 "required": ["file_id"],
@@ -780,6 +831,44 @@ async def _handle_media_tool(name: str, arguments: dict[str, Any]) -> List[types
         except Exception as exc:
             logger.exception("读取字幕内容发生未预期错误")
             return _error(f"读取字幕内容失败: {exc}")
+
+    if name == "align_subtitle":
+        file_id = arguments.get("file_id")
+        if file_id is None:
+            return _missing_fields("file_id")
+        filename = arguments.get("filename")
+        split_penalty = float(arguments.get("split_penalty", 7.0))
+        try:
+            with Session(engine) as session:
+                result = await SubtitleAlignService.align_media_subtitle(
+                    session,
+                    file_id=file_id,
+                    filename=filename,
+                    split_penalty=split_penalty,
+                )
+            return _success("音轨对齐完成：", result.model_dump())
+        except Exception as exc:
+            logger.exception("音轨对齐发生未预期错误")
+            return _error(f"音轨对齐失败: {exc}")
+
+    if name == "check_subtitle_alignment":
+        file_id = arguments.get("file_id")
+        if file_id is None:
+            return _missing_fields("file_id")
+        filename = arguments.get("filename")
+        threshold_ms = float(arguments.get("threshold_ms", 100.0))
+        try:
+            with Session(engine) as session:
+                result = await SubtitleAlignService.check_media_subtitle_alignment(
+                    session,
+                    file_id=file_id,
+                    filename=filename,
+                    threshold_ms=threshold_ms,
+                )
+            return _success("音轨对齐检查结果：", result.model_dump())
+        except Exception as exc:
+            logger.exception("音轨对齐检查发生未预期错误")
+            return _error(f"音轨对齐检查失败: {exc}")
 
     if name == "download_subtitle_for_file":
         file_id = arguments.get("file_id")

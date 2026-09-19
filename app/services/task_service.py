@@ -6,10 +6,12 @@ from typing import List, Optional, Tuple
 
 from sqlmodel import Session, col, func, select
 
+from ..core.config import ConfigManager, SettingKey
 from ..core.observability import log_context
 from ..db.models import ScannedFile, SubtitleTask
 from ..db.session import session_scope
 from .download_workflow import DownloadWorkflow, DownloadWorkflowError, SubtitleMover
+from .subtitle_align_service import SubtitleAlignService
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +176,12 @@ class TaskService:
                 if task_snapshot.target_path:
                     logger.info("task %s: moving subtitle into target path", task_id)
                     final_save_path = SubtitleMover.move(task_snapshot, artifact.save_path)
+
+                # 下载完成后按配置自动执行音轨对齐（失败不影响任务结果）
+                if ConfigManager.get_bool(SettingKey.AUTO_ALIGN_AFTER_DOWNLOAD, True):
+                    aligned = await SubtitleAlignService.auto_align_for_task(task_snapshot, final_save_path)
+                    if aligned:
+                        logger.info("task %s: auto subtitle alignment applied", task_id)
             except (DownloadWorkflowError, OSError) as exc:
                 logger.error("task %s failed: %s", task_id, exc)
                 final_error = exc

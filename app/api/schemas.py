@@ -53,6 +53,19 @@ class SettingUpdateRequest(BaseModel):
     description: Optional[str] = None
 
 
+class ScheduleStatusResponse(BaseModel):
+    enabled: bool
+    cron: str
+    next_run_time: Optional[str] = None
+    running: bool
+    last_run: Optional[dict] = None
+
+
+class FeishuTestResponse(StatusResponse):
+    message: str
+    delivered: bool
+
+
 class SubtitleLanguageResponse(BaseModel):
     code: str
     display_name: str
@@ -155,6 +168,22 @@ class SubtitleAlignResponse(StatusResponse):
     subtitle_filename: str
     backup_filename: Optional[str] = None
     has_backup: bool = True
+
+
+class SubtitleAlignmentCheckRequest(BaseModel):
+    filename: Optional[str] = None
+    threshold_ms: float = Field(default=100.0, ge=0.0, le=60000.0)
+
+
+class SubtitleAlignmentCheckResponse(StatusResponse):
+    aligned: bool
+    checked_cues: int
+    max_shift_ms: float
+    mean_shift_ms: float
+    threshold_ms: float
+    message: str
+    file_id: Optional[int] = None
+    subtitle_filename: str
 
 
 class SubtitleTrashRequest(BaseModel):

@@ -16,6 +16,12 @@ class SettingKey:
     PROXY = "proxy"
     CACHE_EXPIRY_HOURS = "cache_expiry_hours"
     TRASH_RETENTION_DAYS = "trash_retention_days"
+    AUTO_ALIGN_AFTER_DOWNLOAD = "auto_align_after_download"
+    SCHEDULE_ENABLED = "schedule_enabled"
+    SCHEDULE_CRON = "schedule_cron"
+    FEISHU_NOTIFY_ENABLED = "feishu_notify_enabled"
+    FEISHU_WEBHOOK_URL = "feishu_webhook_url"
+    FEISHU_WEBHOOK_SECRET = "feishu_webhook_secret"
     DOWNLOAD_PATH = "download_path"
     TEMP_PATH = "temp_path"
     EXTRACTED_PATH = "extracted_path"
@@ -63,6 +69,39 @@ SETTINGS_DEFINITIONS = {
         description="字幕回收站保留时长（天），过期后将彻底删除；0 表示永久保留",
         kind="int",
     ),
+    SettingKey.AUTO_ALIGN_AFTER_DOWNLOAD: SettingDefinition(
+        key=SettingKey.AUTO_ALIGN_AFTER_DOWNLOAD,
+        default="true",
+        description="字幕下载完成后自动执行音轨对齐（对齐前自动备份原字幕，可随时还原）",
+        kind="bool",
+    ),
+    SettingKey.SCHEDULE_ENABLED: SettingDefinition(
+        key=SettingKey.SCHEDULE_ENABLED,
+        default="false",
+        description="启用定时扫描媒体库并自动补全缺失字幕（cron 触发）",
+        kind="bool",
+    ),
+    SettingKey.SCHEDULE_CRON: SettingDefinition(
+        key=SettingKey.SCHEDULE_CRON,
+        default="0 3 * * *",
+        description="定时扫描补字幕的 cron 表达式（5 段式：分 时 日 月 周）",
+    ),
+    SettingKey.FEISHU_NOTIFY_ENABLED: SettingDefinition(
+        key=SettingKey.FEISHU_NOTIFY_ENABLED,
+        default="false",
+        description="定时任务完成后发送飞书机器人通知",
+        kind="bool",
+    ),
+    SettingKey.FEISHU_WEBHOOK_URL: SettingDefinition(
+        key=SettingKey.FEISHU_WEBHOOK_URL,
+        default="",
+        description="飞书自定义机器人 Webhook 地址",
+    ),
+    SettingKey.FEISHU_WEBHOOK_SECRET: SettingDefinition(
+        key=SettingKey.FEISHU_WEBHOOK_SECRET,
+        default="",
+        description="飞书机器人加签密钥（机器人未开启加签则留空）",
+    ),
 }
 
 PATH_ENV_MAP = {
@@ -70,6 +109,12 @@ PATH_ENV_MAP = {
     SettingKey.TEMP_PATH: "ZIMUKU_TEMP_PATH",
     SettingKey.EXTRACTED_PATH: "ZIMUKU_EXTRACTED_PATH",
     SettingKey.TRASH_PATH: "ZIMUKU_TRASH_PATH",
+}
+
+BOOL_SETTING_KEYS = {
+    SettingKey.AUTO_ALIGN_AFTER_DOWNLOAD,
+    SettingKey.SCHEDULE_ENABLED,
+    SettingKey.FEISHU_NOTIFY_ENABLED,
 }
 
 
@@ -204,6 +249,16 @@ class ConfigManager:
             return default
 
     @classmethod
+    def get_bool(cls, key: str, default: bool) -> bool:
+        value = str(cls.get(key, "true" if default else "false")).strip().lower()
+        if value in {"true", "1", "yes", "on"}:
+            return True
+        if value in {"false", "0", "no", "off"}:
+            return False
+        logger.warning("配置 %s=%r 不是合法布尔值，回退到默认值 %s", key, value, default)
+        return default
+
+    @classmethod
     def get_path(cls, key: str) -> str:
         paths = get_storage_paths()
         derived_paths = {
@@ -253,6 +308,28 @@ class ConfigManager:
             if numeric_value < 0:
                 raise ValueError("trash_retention_days 必须大于等于 0（0 表示永久保留）")
             return str(numeric_value)
+
+        if key in BOOL_SETTING_KEYS:
+            lowered = normalized.lower()
+            if lowered in {"true", "1", "yes", "on"}:
+                return "true"
+            if lowered in {"false", "0", "no", "off"}:
+                return "false"
+            raise ValueError(f"{key} 必须是布尔值（true/false）")
+
+        if key == SettingKey.SCHEDULE_CRON:
+            from apscheduler.triggers.cron import CronTrigger
+
+            try:
+                CronTrigger.from_crontab(normalized)
+            except (ValueError, TypeError) as exc:
+                raise ValueError(f"schedule_cron 不是合法的 5 段式 cron 表达式: {normalized}") from exc
+            return normalized
+
+        if key == SettingKey.FEISHU_WEBHOOK_URL:
+            if normalized and not normalized.startswith(("http://", "https://")):
+                raise ValueError("feishu_webhook_url 必须是 http(s) 地址")
+            return normalized
 
         return normalized
 

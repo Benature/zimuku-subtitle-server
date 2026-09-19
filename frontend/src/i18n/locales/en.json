@@ -78,7 +78,9 @@
       "tvDirectory": "TV Shows Directory",
       "tvSub": "Local paths for series",
       "add": "Add",
-      "noDirectories": "No directories added"
+      "noDirectories": "No directories added",
+      "autoAlign": "Auto-align after download",
+      "autoAlignDescription": "Automatically align downloaded subtitles with the video audio track (original subtitle is backed up first and can be restored anytime)"
     }
   },
   "home": {

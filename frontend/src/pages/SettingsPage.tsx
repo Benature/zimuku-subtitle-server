@@ -30,6 +30,22 @@ export default function SettingsPage() {
   const deleteMediaPathMutation = useDeleteMediaPathMutation();
   const triggerMediaMatchMutation = useTriggerMediaMatchMutation();
   const settings = settingsQuery.data ?? [];
+  const autoAlignSetting = settings.find(s => s.key === 'auto_align_after_download');
+  const autoAlignEnabled = (autoAlignSetting?.value ?? 'true') === 'true';
+
+  const handleToggleAutoAlign = async (): Promise<void> => {
+    try {
+      await updateSettingMutation.mutateAsync({
+        key: 'auto_align_after_download',
+        value: autoAlignEnabled ? 'false' : 'true',
+        description: autoAlignSetting?.description,
+      });
+      await settingsQuery.refetch();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      alert(t('page.settings.saveFailed') + ': ' + message);
+    }
+  };
 
   const pathInputs = {
     movie: newMoviePath,
@@ -138,6 +154,34 @@ export default function SettingsPage() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="flex items-center justify-between gap-4 bg-surface-container-low border border-outline-variant/15 rounded-xl p-4 max-w-md">
+              <div className="flex flex-col gap-1 min-w-0">
+                <span className="text-sm font-label font-bold text-on-surface flex items-center gap-2">
+                  <span className="material-symbols-outlined text-base text-primary">graphic_eq</span>
+                  {t('page.settings.autoAlign')}
+                </span>
+                <span className="text-[11px] text-on-surface-variant leading-relaxed">
+                  {t('page.settings.autoAlignDescription')}
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autoAlignEnabled}
+                onClick={handleToggleAutoAlign}
+                disabled={updateSettingMutation.isPending}
+                className={`shrink-0 w-12 h-7 rounded-full p-1 transition-colors duration-200 disabled:opacity-50 ${
+                  autoAlignEnabled ? 'bg-primary' : 'bg-surface-container-highest'
+                }`}
+              >
+                <span
+                  className={`block w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${
+                    autoAlignEnabled ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
             </div>
           </div>
         </section>

@@ -3,14 +3,16 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, delete
+from sqlmodel import Session, delete, select
 
 from app.core.aligner import AlignerStatus, SubtitleAligner, SubtitleAlignError
-from app.db.models import MediaPath, ScannedFile, SubtitleTask
+from app.core.config import ConfigManager, SettingKey
+from app.db.models import MediaPath, ScannedFile, Setting, SubtitleTask
 from app.db.session import create_db_and_tables, engine
 from app.main import app
 from app.services.subtitle_align_service import SubtitleAlignService
 from app.services.subtitle_inspection_service import SubtitleInspectionService
+from app.services.task_service import TaskService
 
 client = TestClient(app)
 
@@ -28,6 +30,12 @@ def clean_records():
         session.exec(delete(SubtitleTask))
         session.exec(delete(ScannedFile))
         session.exec(delete(MediaPath))
+        auto_align_setting = session.exec(
+            select(Setting).where(Setting.key == SettingKey.AUTO_ALIGN_AFTER_DOWNLOAD)
+        ).first()
+        if auto_align_setting:
+            auto_align_setting.value = "true"
+            session.add(auto_align_setting)
         session.commit()
 
 
@@ -359,3 +367,251 @@ def test_api_align_and_restore_endpoints(tmp_path: Path):
     data = res.json()
     assert data["status"] == "ok"
     assert data["has_backup"] is False
+
+
+def test_extract_start_times(tmp_path: Path):
+    srt = tmp_path / "a.srt"
+    srt.write_text(
+        "1\n00:00:01,000 --> 00:00:02,500\nHello\n\n2\n00:01:05,250 --> 00:01:07,000\nWorld\n",
+        encoding="utf-8",
+    )
+    starts = SubtitleAligner.extract_start_times(srt)
+    assert starts == [1000, 65250]
+
+    ass = tmp_path / "a.ass"
+    ass.write_text(
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,Hello\n"
+        "Dialogue: 0,0:01:05.25,0:01:07.00,Default,,0,0,0,,World\n",
+        encoding="utf-8",
+    )
+    starts = SubtitleAligner.extract_start_times(ass)
+    assert starts == [1000, 65250]
+
+
+@pytest.mark.anyio
+async def test_check_alignment_judgement(tmp_path: Path):
+    video_path = tmp_path / "movie.mp4"
+    video_path.write_bytes(b"video")
+    sub_path = tmp_path / "movie.srt"
+    sub_path.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nA\n\n2\n00:00:05,000 --> 00:00:06,000\nB\n",
+        encoding="utf-8",
+    )
+
+    with Session(engine) as session:
+        path_record = MediaPath(path=str(tmp_path), type="movie")
+        session.add(path_record)
+        session.commit()
+        session.refresh(path_record)
+        media = ScannedFile(
+            path_id=path_record.id,
+            type="movie",
+            file_path=str(video_path),
+            filename=video_path.name,
+            has_subtitle=True,
+        )
+        session.add(media)
+        session.commit()
+        session.refresh(media)
+        file_id = media.id
+
+    # 场景 1：对齐后偏移极小 -> 判定已对齐
+    async def fake_align_small_shift(reference_path, subtitle_path, output_path, split_penalty=7.0, **kwargs):
+        output_path.write_text(
+            "1\n00:00:01,050 --> 00:00:02,050\nA\n\n2\n00:00:05,080 --> 00:00:06,080\nB\n",
+            encoding="utf-8",
+        )
+
+    with patch.object(SubtitleAligner, "align", side_effect=fake_align_small_shift):
+        with Session(engine) as session:
+            res = await SubtitleAlignService.check_media_subtitle_alignment(session, file_id)
+            assert res.aligned is True
+            assert res.checked_cues == 2
+            assert res.max_shift_ms == 80
+            assert res.mean_shift_ms == 65
+
+    # 场景 2：对齐后偏移较大 -> 判定未对齐，且原字幕未被修改
+    async def fake_align_big_shift(reference_path, subtitle_path, output_path, split_penalty=7.0, **kwargs):
+        output_path.write_text(
+            "1\n00:00:03,500 --> 00:00:04,500\nA\n\n2\n00:00:07,500 --> 00:00:08,500\nB\n",
+            encoding="utf-8",
+        )
+
+    original_content = sub_path.read_text(encoding="utf-8")
+    with patch.object(SubtitleAligner, "align", side_effect=fake_align_big_shift):
+        with Session(engine) as session:
+            res = await SubtitleAlignService.check_media_subtitle_alignment(session, file_id)
+            assert res.aligned is False
+            assert res.max_shift_ms == 2500
+    assert sub_path.read_text(encoding="utf-8") == original_content
+
+    # 场景 3：检查 API 端点
+    with patch.object(SubtitleAligner, "align", side_effect=fake_align_small_shift):
+        res = client.post(f"/media/files/{file_id}/check-subtitle-alignment", json={"threshold_ms": 200})
+        assert res.status_code == 200
+        data = res.json()
+        assert data["aligned"] is True
+        assert data["subtitle_filename"] == "movie.srt"
+
+
+@pytest.mark.anyio
+async def test_auto_align_for_task_respects_format_and_failures(tmp_path: Path):
+    video_path = tmp_path / "m.mp4"
+    video_path.write_bytes(b"video")
+
+    # .sup 图形字幕不支持，跳过且返回 False
+    sup_path = tmp_path / "m.sup"
+    sup_path.write_bytes(b"binary")
+    task = SubtitleTask(
+        title="m",
+        source_url="http://x.test/1",
+        status="completed",
+        target_path=str(video_path),
+        save_path=str(sup_path),
+    )
+    assert await SubtitleAlignService.auto_align_for_task(task, str(sup_path)) is False
+
+    # 对齐引擎抛异常时不影响任务（返回 False）
+    srt_path = tmp_path / "m.zh-CN.srt"
+    srt_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nX\n", encoding="utf-8")
+    task.save_path = str(srt_path)
+    with patch.object(SubtitleAligner, "align", side_effect=SubtitleAlignError("engine down")):
+        assert await SubtitleAlignService.auto_align_for_task(task, str(srt_path)) is False
+    # 原字幕未被破坏，但备份已建立
+    assert "X" in srt_path.read_text(encoding="utf-8")
+    assert (tmp_path / "m.zh-CN.orig.srt").exists()
+
+    # 正常路径：成功对齐返回 True
+    async def fake_align(reference_path, subtitle_path, output_path, split_penalty=7.0):
+        output_path.write_text("1\n00:00:02,000 --> 00:00:03,000\nX\n", encoding="utf-8")
+
+    with patch.object(SubtitleAligner, "align", side_effect=fake_align):
+        assert await SubtitleAlignService.auto_align_for_task(task, str(srt_path)) is True
+
+
+@pytest.mark.anyio
+async def test_run_download_task_auto_align_toggle(tmp_path: Path):
+    video_path = tmp_path / "auto.mp4"
+    video_path.write_bytes(b"video")
+
+    async def fake_execute(self, task):
+        from app.services.download_workflow import DownloadArtifact
+
+        save_path = tmp_path / "auto.zh-CN.srt"
+        save_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nAuto\n", encoding="utf-8")
+        return DownloadArtifact(
+            filename="auto.zip",
+            file_path=str(save_path),
+            save_path=str(save_path),
+            extracted_files=[str(save_path)],
+        )
+
+    # 开关开启时：下载成功后触发自动对齐
+    with Session(engine) as session:
+        task = SubtitleTask(
+            title="auto",
+            source_url="http://x.test/auto-on",
+            status="pending",
+            target_path=str(video_path),
+        )
+        session.add(task)
+        session.commit()
+        session.refresh(task)
+        task_id = task.id
+
+    with (
+        patch("app.services.task_service.DownloadWorkflow.execute", new=fake_execute),
+        patch("app.services.task_service.DownloadWorkflow.close", new=AsyncMock(return_value=None)),
+        patch.object(SubtitleAlignService, "auto_align_for_task", new=AsyncMock(return_value=True)) as mock_auto_align,
+    ):
+        await TaskService.run_download_task(task_id)
+        assert mock_auto_align.await_count == 1
+
+    with Session(engine) as session:
+        task = session.get(SubtitleTask, task_id)
+        assert task.status == "completed"
+
+    # 开关关闭时：不触发自动对齐
+    ConfigManager.set(SettingKey.AUTO_ALIGN_AFTER_DOWNLOAD, "false")
+    with Session(engine) as session:
+        task2 = SubtitleTask(
+            title="auto2",
+            source_url="http://x.test/auto-off",
+            status="pending",
+            target_path=str(video_path),
+        )
+        session.add(task2)
+        session.commit()
+        session.refresh(task2)
+        task2_id = task2.id
+
+    with (
+        patch("app.services.task_service.DownloadWorkflow.execute", new=fake_execute),
+        patch("app.services.task_service.DownloadWorkflow.close", new=AsyncMock(return_value=None)),
+        patch.object(SubtitleAlignService, "auto_align_for_task", new=AsyncMock(return_value=True)) as mock_auto_align2,
+    ):
+        await TaskService.run_download_task(task2_id)
+        assert mock_auto_align2.await_count == 0
+
+    ConfigManager.set(SettingKey.AUTO_ALIGN_AFTER_DOWNLOAD, "true")
+
+
+def test_auto_align_setting_normalization():
+    assert ConfigManager.normalize_value(SettingKey.AUTO_ALIGN_AFTER_DOWNLOAD, "ON") == "true"
+    assert ConfigManager.normalize_value(SettingKey.AUTO_ALIGN_AFTER_DOWNLOAD, "0") == "false"
+    with pytest.raises(ValueError):
+        ConfigManager.normalize_value(SettingKey.AUTO_ALIGN_AFTER_DOWNLOAD, "maybe")
+
+    assert ConfigManager.get_bool(SettingKey.AUTO_ALIGN_AFTER_DOWNLOAD, True) is True
+
+
+@pytest.mark.anyio
+async def test_mcp_align_and_check_tools(tmp_path: Path):
+    from app.mcp.server import handle_call_tool, handle_list_tools
+
+    video_path = tmp_path / "mcp.mp4"
+    video_path.write_bytes(b"video")
+    sub_path = tmp_path / "mcp.zh-CN.srt"
+    sub_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nMCP\n", encoding="utf-8")
+
+    with Session(engine) as session:
+        path_record = MediaPath(path=str(tmp_path), type="movie")
+        session.add(path_record)
+        session.commit()
+        session.refresh(path_record)
+        media = ScannedFile(
+            path_id=path_record.id,
+            type="movie",
+            file_path=str(video_path),
+            filename=video_path.name,
+            has_subtitle=True,
+        )
+        session.add(media)
+        session.commit()
+        session.refresh(media)
+        file_id = media.id
+
+    tools = await handle_list_tools()
+    tool_names = [t.name for t in tools]
+    assert "align_subtitle" in tool_names
+    assert "check_subtitle_alignment" in tool_names
+
+    # 手动触发对齐
+    async def fake_align(reference_path, subtitle_path, output_path, split_penalty=7.0):
+        output_path.write_text("1\n00:00:02,000 --> 00:00:03,000\nMCP Aligned\n", encoding="utf-8")
+
+    with patch.object(SubtitleAligner, "align", side_effect=fake_align):
+        res = await handle_call_tool("align_subtitle", {"file_id": file_id})
+        assert "音轨对齐完成" in res[0].text
+        assert (tmp_path / "mcp.zh-CN.orig.srt").exists()
+
+    # 对齐检查（对齐后无偏移 -> aligned=True）
+    async def fake_align_no_shift(reference_path, subtitle_path, output_path, split_penalty=7.0, **kwargs):
+        output_path.write_text(subtitle_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    with patch.object(SubtitleAligner, "align", side_effect=fake_align_no_shift):
+        res = await handle_call_tool("check_subtitle_alignment", {"file_id": file_id})
+        assert "音轨对齐检查结果" in res[0].text
+        assert '"aligned": true' in res[0].text

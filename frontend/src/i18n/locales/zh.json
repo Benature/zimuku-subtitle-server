@@ -78,7 +78,9 @@
       "tvDirectory": "剧集目录",
       "tvSub": "剧集的本地和网络存放路径",
       "add": "添加",
-      "noDirectories": "尚未添加相关目录"
+      "noDirectories": "尚未添加相关目录",
+      "autoAlign": "下载后自动音轨对齐",
+      "autoAlignDescription": "字幕下载完成后自动将字幕与视频音轨对齐（对齐前自动备份原字幕，可随时还原）"
     }
   },
   "home": {

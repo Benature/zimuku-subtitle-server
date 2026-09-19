@@ -21,6 +21,8 @@ from .schemas import (
     MediaListResponse,
     MediaMetadataResponse,
     SeasonMatchRequest,
+    SubtitleAlignmentCheckRequest,
+    SubtitleAlignmentCheckResponse,
     SubtitleAlignRequest,
     SubtitleAlignResponse,
     SubtitleContentResponse,
@@ -289,6 +291,26 @@ async def align_media_subtitle(
             file_id=file_id,
             filename=filename,
             split_penalty=split_penalty,
+        )
+    except Exception as exc:
+        raise_for_service_error(exc)
+
+
+@router.post("/files/{file_id}/check-subtitle-alignment", response_model=SubtitleAlignmentCheckResponse)
+async def check_media_subtitle_alignment(
+    file_id: int,
+    payload: Optional[SubtitleAlignmentCheckRequest] = Body(default=None),
+    session: Session = Depends(get_session),
+) -> SubtitleAlignmentCheckResponse:
+    """检查指定媒体文件的字幕与音轨是否已对齐（不修改字幕文件）"""
+    try:
+        filename = payload.filename if payload else None
+        threshold_ms = payload.threshold_ms if payload else 100.0
+        return await SubtitleAlignService.check_media_subtitle_alignment(
+            session=session,
+            file_id=file_id,
+            filename=filename,
+            threshold_ms=threshold_ms,
         )
     except Exception as exc:
         raise_for_service_error(exc)

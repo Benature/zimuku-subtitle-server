@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -10,6 +11,11 @@ from .config import get_temp_path
 from .subtitle_detector import SubtitleDetector
 
 logger = logging.getLogger(__name__)
+
+# SRT: 00:00:01,000 --> 00:00:03,000
+_SRT_TIME_PATTERN = re.compile(r"(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})")
+# ASS/SSA: Dialogue: 0,0:00:01.00,0:00:03.00,...
+_ASS_DIALOGUE_PATTERN = re.compile(r"^\s*Dialogue\s*:\s*\d+\s*,\s*(\d+):(\d{2}):(\d{2})\.(\d{2})\s*,", re.MULTILINE)
 
 
 class SubtitleAlignError(ValueError):
@@ -23,6 +29,21 @@ class AlignerStatus:
     ffmpeg_available: bool
     alass_path: Optional[str]
     ffsubsync_path: Optional[str]
+    message: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class AlignmentCheckResult:
+    """字幕与音轨对齐状态的判定结果。"""
+
+    aligned: bool
+    checked_cues: int
+    max_shift_ms: float
+    mean_shift_ms: float
+    threshold_ms: float
     message: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -170,6 +191,86 @@ class SubtitleAligner:
                 temp_input.unlink(missing_ok=True)
             if temp_output.exists():
                 temp_output.unlink(missing_ok=True)
+
+    @classmethod
+    async def check_alignment(
+        cls,
+        reference_path: Path,
+        subtitle_path: Path,
+        threshold_ms: float = 100.0,
+        split_penalty: float = 7.0,
+        timeout_seconds: int = 180,
+    ) -> AlignmentCheckResult:
+        """检查字幕与音轨是否已对齐。
+
+        通过将字幕对齐到临时副本并比对原始/对齐后各条对白的起始时间偏移量，
+        若最大偏移量不超过阈值（默认 100ms）则判定为已对齐。
+        不修改原始字幕文件。
+        """
+        temp_dir = Path(get_temp_path()) / "align"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_output = temp_dir / f"check_{os.getpid()}_{subtitle_path.name}"
+
+        try:
+            await cls.align(
+                reference_path=reference_path,
+                subtitle_path=subtitle_path,
+                output_path=temp_output,
+                split_penalty=split_penalty,
+                timeout_seconds=timeout_seconds,
+            )
+
+            original_starts = cls.extract_start_times(subtitle_path)
+            aligned_starts = cls.extract_start_times(temp_output)
+        finally:
+            temp_output.unlink(missing_ok=True)
+
+        if not original_starts or not aligned_starts:
+            raise SubtitleAlignError("字幕中未解析到有效的对白时间戳，无法执行对齐检查")
+
+        pair_count = min(len(original_starts), len(aligned_starts))
+        shifts = [abs(aligned_starts[i] - original_starts[i]) for i in range(pair_count)]
+        max_shift = max(shifts)
+        mean_shift = sum(shifts) / len(shifts)
+        aligned = max_shift <= threshold_ms
+
+        if aligned:
+            message = f"字幕与音轨已对齐（最大偏移 {max_shift:.0f}ms，阈值 {threshold_ms:.0f}ms）"
+        else:
+            message = (
+                f"字幕与音轨未对齐（最大偏移 {max_shift:.0f}ms，"
+                f"平均偏移 {mean_shift:.0f}ms，阈值 {threshold_ms:.0f}ms）"
+            )
+
+        return AlignmentCheckResult(
+            aligned=aligned,
+            checked_cues=pair_count,
+            max_shift_ms=round(max_shift, 1),
+            mean_shift_ms=round(mean_shift, 1),
+            threshold_ms=threshold_ms,
+            message=message,
+        )
+
+    @classmethod
+    def extract_start_times(cls, subtitle_path: Path) -> list[float]:
+        """提取字幕中每条对白的起始时间（毫秒）。"""
+        raw_bytes = subtitle_path.read_bytes()
+        try:
+            text, _ = SubtitleDetector.decode_subtitle_bytes(raw_bytes)
+        except Exception as exc:
+            raise SubtitleAlignError(f"解析字幕编码失败: {exc}") from exc
+
+        ext = subtitle_path.suffix.lower()
+        starts: list[float] = []
+        if ext in {".ass", ".ssa"}:
+            for match in _ASS_DIALOGUE_PATTERN.finditer(text):
+                hours, minutes, seconds, centis = (int(match.group(i)) for i in range(1, 5))
+                starts.append(((hours * 3600 + minutes * 60 + seconds) * 1000) + centis * 10)
+        else:
+            for match in _SRT_TIME_PATTERN.finditer(text):
+                hours, minutes, seconds, millis = (int(match.group(i)) for i in range(1, 5))
+                starts.append((hours * 3600 + minutes * 60 + seconds) * 1000 + millis)
+        return starts
 
     @classmethod
     async def _run_alass(

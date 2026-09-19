@@ -5,7 +5,7 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from ..api.schemas import AlignerStatusResponse, SubtitleAlignResponse
+from ..api.schemas import AlignerStatusResponse, SubtitleAlignmentCheckResponse, SubtitleAlignResponse
 from ..core.aligner import SubtitleAligner
 from ..db.models import ScannedFile, SubtitleTask
 from .subtitle_inspection_service import SubtitleInspectionService
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class SubtitleAlignService:
-    """音轨对齐与字幕版本恢复服务。"""
+    """音轨对齐、对齐状态检查与字幕版本恢复服务。"""
 
     @classmethod
     def get_status(cls) -> AlignerStatusResponse:
@@ -29,13 +29,12 @@ class SubtitleAlignService:
         )
 
     @classmethod
-    async def align_media_subtitle(
+    def _resolve_video_and_subtitle(
         cls,
         session: Session,
         file_id: int,
-        filename: Optional[str] = None,
-        split_penalty: float = 7.0,
-    ) -> SubtitleAlignResponse:
+        filename: Optional[str],
+    ) -> tuple[ScannedFile, Path, Path]:
         media = session.get(ScannedFile, file_id)
         if media is None:
             raise LookupError(f"未找到媒体文件 ID: {file_id}")
@@ -69,15 +68,32 @@ class SubtitleAlignService:
                 available = [p.name for p in subtitle_paths]
                 raise ValueError(f"存在多个关联字幕，请指定具体字幕文件名: {', '.join(available)}")
 
-        sub_suffix = target_sub.suffix.lower()
-        if sub_suffix not in SubtitleAligner.SUPPORTED_SUBTITLE_FORMATS:
-            raise ValueError(f"字幕格式 '{sub_suffix}' 不支持音轨对齐")
+        return media, video_path, target_sub
 
-        # 备份原字幕（仅在最初未备份时建立，保留最原始版本）
+    @staticmethod
+    def _backup_original(target_sub: Path) -> Path:
+        """备份原字幕（仅在最初未备份时建立，保留最原始版本）。"""
         backup_path = target_sub.with_name(f"{target_sub.stem}.orig{target_sub.suffix}")
         if not backup_path.exists():
             shutil.copy2(target_sub, backup_path)
             logger.info("Created original backup for subtitle %s at %s", target_sub, backup_path)
+        return backup_path
+
+    @classmethod
+    async def align_media_subtitle(
+        cls,
+        session: Session,
+        file_id: int,
+        filename: Optional[str] = None,
+        split_penalty: float = 7.0,
+    ) -> SubtitleAlignResponse:
+        media, video_path, target_sub = cls._resolve_video_and_subtitle(session, file_id, filename)
+
+        sub_suffix = target_sub.suffix.lower()
+        if sub_suffix not in SubtitleAligner.SUPPORTED_SUBTITLE_FORMATS:
+            raise ValueError(f"字幕格式 '{sub_suffix}' 不支持音轨对齐")
+
+        backup_path = cls._backup_original(target_sub)
 
         logger.info(
             "Starting subtitle alignment for media=%s, sub=%s, video=%s",
@@ -99,6 +115,38 @@ class SubtitleAlignService:
             subtitle_filename=target_sub.name,
             backup_filename=backup_path.name,
             has_backup=True,
+        )
+
+    @classmethod
+    async def check_media_subtitle_alignment(
+        cls,
+        session: Session,
+        file_id: int,
+        filename: Optional[str] = None,
+        threshold_ms: float = 100.0,
+    ) -> SubtitleAlignmentCheckResponse:
+        media, video_path, target_sub = cls._resolve_video_and_subtitle(session, file_id, filename)
+
+        sub_suffix = target_sub.suffix.lower()
+        if sub_suffix not in SubtitleAligner.SUPPORTED_SUBTITLE_FORMATS:
+            raise ValueError(f"字幕格式 '{sub_suffix}' 不支持音轨对齐检查")
+
+        result = await SubtitleAligner.check_alignment(
+            reference_path=video_path,
+            subtitle_path=target_sub,
+            threshold_ms=threshold_ms,
+        )
+
+        return SubtitleAlignmentCheckResponse(
+            status="ok",
+            aligned=result.aligned,
+            checked_cues=result.checked_cues,
+            max_shift_ms=result.max_shift_ms,
+            mean_shift_ms=result.mean_shift_ms,
+            threshold_ms=result.threshold_ms,
+            message=f"字幕 '{target_sub.name}': {result.message}",
+            file_id=media.id,
+            subtitle_filename=target_sub.name,
         )
 
     @classmethod
@@ -139,6 +187,39 @@ class SubtitleAlignService:
             backup_filename=None,
             has_backup=False,
         )
+
+    @classmethod
+    async def auto_align_for_task(cls, task: SubtitleTask, save_path: str) -> bool:
+        """下载任务完成后的自动对齐入口（失败仅记录日志，不影响任务状态）。
+
+        :return: 是否成功执行了自动对齐
+        """
+        sub_path = Path(save_path)
+        if sub_path.suffix.lower() not in SubtitleAligner.SUPPORTED_SUBTITLE_FORMATS:
+            logger.info("task %s: skip auto-align, unsupported subtitle format %s", task.id, sub_path.suffix)
+            return False
+
+        if not sub_path.is_file():
+            logger.warning("task %s: skip auto-align, subtitle file missing: %s", task.id, sub_path)
+            return False
+
+        video_path = Path(task.target_path) if task.target_path else None
+        if not video_path or not video_path.is_file():
+            logger.info("task %s: skip auto-align, no associated video file", task.id)
+            return False
+
+        try:
+            cls._backup_original(sub_path)
+            await SubtitleAligner.align(
+                reference_path=video_path,
+                subtitle_path=sub_path,
+                output_path=sub_path,
+            )
+            logger.info("task %s: auto-align completed for %s", task.id, sub_path.name)
+            return True
+        except Exception as exc:
+            logger.warning("task %s: auto-align failed for %s: %s", task.id, sub_path.name, exc)
+            return False
 
     @classmethod
     async def align_task_subtitle(
@@ -182,9 +263,7 @@ class SubtitleAlignService:
         if not video_path or not video_path.is_file():
             raise LookupError("任务未关联有效的视频文件，无法执行音轨对齐")
 
-        backup_path = sub_path.with_name(f"{sub_path.stem}.orig{sub_path.suffix}")
-        if not backup_path.exists():
-            shutil.copy2(sub_path, backup_path)
+        backup_path = cls._backup_original(sub_path)
 
         await SubtitleAligner.align(
             reference_path=video_path,
