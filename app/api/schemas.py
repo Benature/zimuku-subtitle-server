@@ -46,6 +46,12 @@ class SettingUpdateRequest(BaseModel):
     description: Optional[str] = None
 
 
+class SubtitleLanguageResponse(BaseModel):
+    code: str
+    display_name: str
+    filename_tag: str
+
+
 class MediaMetadataResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -79,3 +85,38 @@ class MediaListResponse(BaseModel):
     offset: int
     limit: int
     items: list[MediaSummary]
+
+
+class ExistingSubtitleResponse(BaseModel):
+    filename: str
+    file_path: str
+    format: str
+    size_bytes: int
+    modified_at: str
+    filename_language: Optional[str] = None
+    is_binary: bool
+    detected_language: str
+    detected_language_name: str
+    is_bilingual: bool
+    encoding: str
+    chinese_char_count: int
+    english_word_count: int
+    bilingual_dialogue_count: int
+    sample_dialogues: list[str]
+    confidence: float
+    details: dict[str, Any]
+
+
+class SubtitleContentResponse(BaseModel):
+    file_id: int
+    media_filename: str
+    subtitle_filename: str
+    subtitle_path: str
+    format: str
+    encoding: str
+    is_binary: bool
+    clean_text: bool
+    total_lines: int
+    returned_lines: int
+    lines: list[str]
+    analysis: dict[str, Any]

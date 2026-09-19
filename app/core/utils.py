@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict
 
-SUBTITLE_EXTENSIONS = {".srt", ".ass", ".ssa", ".vtt", ".sub"}
+SUBTITLE_EXTENSIONS = {".srt", ".ass", ".ssa", ".vtt", ".sub", ".sup"}
 NOISE_TOKENS_PATTERN = r"(?i)(1080p|720p|2160p|4k|bluray|web-dl|x264|x265|hevc|aac).*$"
 
 

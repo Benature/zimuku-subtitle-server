@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Languages, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { changeLanguage } from '../i18n';
 import { supportedLanguages } from '../i18n/config';
@@ -7,6 +8,7 @@ import {
   useAddMediaPathMutation,
   useDeleteMediaPathMutation,
   useSettingsQuery,
+  useSubtitleLanguagesQuery,
   useTriggerMediaMatchMutation,
   useUpdateSettingMutation,
 } from '../hooks/queries';
@@ -22,6 +24,7 @@ export default function SettingsPage() {
   const [newMoviePath, setNewMoviePath] = useState('');
   const [newTvPath, setNewTvPath] = useState('');
   const settingsQuery = useSettingsQuery();
+  const subtitleLanguagesQuery = useSubtitleLanguagesQuery();
   const updateSettingMutation = useUpdateSettingMutation();
   const addMediaPathMutation = useAddMediaPathMutation();
   const deleteMediaPathMutation = useDeleteMediaPathMutation();
@@ -184,6 +187,60 @@ export default function SettingsPage() {
               ))
             )}
           </div>
+        </section>
+
+        <section className="md:col-span-12 bg-surface-container rounded-2xl p-8 transition-all duration-300 hover:bg-surface-container-high border border-outline-variant/10">
+          <div className="flex items-center gap-3 mb-6">
+            <Languages className="w-5 h-5 text-primary" aria-hidden="true" />
+            <div>
+              <h3 className="font-headline font-bold text-xl text-on-surface">
+                {t('page.settings.subtitleLanguages')}
+              </h3>
+              <p className="text-xs text-on-surface-variant mt-1">
+                {t('page.settings.subtitleLanguagesDescription')}
+              </p>
+            </div>
+          </div>
+
+          {subtitleLanguagesQuery.isPending ? (
+            <div className="py-6 text-sm text-on-surface-variant" role="status">
+              {t('page.settings.subtitleLanguagesLoading')}
+            </div>
+          ) : subtitleLanguagesQuery.isError ? (
+            <div className="flex items-center justify-between gap-4 py-4 border-t border-outline-variant/10">
+              <span className="text-sm text-error">{t('page.settings.subtitleLanguagesError')}</span>
+              <button
+                type="button"
+                onClick={() => subtitleLanguagesQuery.refetch()}
+                className="w-9 h-9 shrink-0 inline-flex items-center justify-center rounded-lg text-primary hover:bg-primary/10 transition-colors"
+                title={t('action.retry')}
+                aria-label={t('action.retry')}
+              >
+                <RefreshCw className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto border-t border-outline-variant/10">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-xs text-on-surface-variant">
+                    <th className="py-3 pr-4 font-label font-bold">{t('page.settings.languageName')}</th>
+                    <th className="py-3 px-4 font-label font-bold">{t('page.settings.languageCode')}</th>
+                    <th className="py-3 pl-4 font-label font-bold">{t('page.settings.filenameTag')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(subtitleLanguagesQuery.data ?? []).map(language => (
+                    <tr key={language.code} className="border-t border-outline-variant/10 text-sm">
+                      <td className="py-3 pr-4 text-on-surface font-medium">{language.display_name}</td>
+                      <td className="py-3 px-4 text-on-surface-variant font-mono">{language.code}</td>
+                      <td className="py-3 pl-4 text-on-surface-variant font-mono">{language.filename_tag}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
 
         <section className="md:col-span-12 bg-surface-container rounded-2xl p-8 transition-all duration-300 hover:bg-surface-container-high border border-outline-variant/10">

@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, delete
 
+from app.api.system import get_subtitle_languages
 from app.db.models import MediaPath, ScannedFile, SubtitleTask
 from app.db.session import create_db_and_tables, engine
 from app.main import app
@@ -73,6 +74,16 @@ def test_system_stats_api():
     assert data["tasks"]["completed"] == 1
     assert data["tasks"]["failed"] == 1
     assert "storage" in data
+
+
+@pytest.mark.anyio
+async def test_subtitle_languages_api():
+    assert await get_subtitle_languages() == [
+        {"code": "zh-CN", "display_name": "简体中文", "filename_tag": "zh-CN"},
+        {"code": "zh-TW", "display_name": "繁体中文", "filename_tag": "zh-TW"},
+        {"code": "en", "display_name": "英语", "filename_tag": "en"},
+        {"code": "zh-CN-en", "display_name": "简英双语", "filename_tag": "zh-CN-en"},
+    ]
 
 
 def test_get_logs_api(tmp_path, monkeypatch):

@@ -159,8 +159,8 @@ docker compose up frontend
 - 正式版后端镜像使用无后缀 tag，例如 `latest` 或 `1.0.0`
 - develop 版后端镜像使用 `-develop` 后缀，例如 `develop` 或 `1.0.0-develop`
 - 正式版前端镜像使用无后缀 tag，例如 `latest` 或 `1.0.0`
-- 默认 [`docker-compose.yml`](/Users/cy/Projects/zimuku-subtitle-server/docker-compose.yml#L1) 直接使用 DockerHub 镜像
-- [`docker-compose.develop.yml`](/Users/cy/Projects/zimuku-subtitle-server/docker-compose.develop.yml#L1) 会覆盖为 `develop` target，本地构建后端镜像，并挂载后端源码目录用于开发调试
+- 默认 [`docker-compose.yml`](docker-compose.yml) 直接使用 DockerHub 镜像
+- [`docker-compose.develop.yml`](docker-compose.develop.yml) 会覆盖为 `develop` target，本地构建后端镜像，并挂载后端源码目录用于开发调试
 
 如果使用 Docker 挂载的媒体库，请在应用中配置媒体路径为 `/media/movies` 和 `/media/tv`，不要填写宿主机原始路径。
 
@@ -185,13 +185,18 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 当前 MCP 已覆盖：
 
 - 字幕搜索与下载
+- 已有字幕查询与内容读取（支持自动分析字幕实际语言、双语判定、中英行数统计及对白样本查看）
+- Base64 字幕文件上传，支持单个字幕及 ZIP/7z 字幕包
+- 只读字幕语言目录查询
 - 媒体库路径管理、文件列表查看、媒体库列表刷新
 - 单文件自动匹配、剧集季批量字幕匹配
 - 下载任务创建、查询、分页、重试、删除、清理
 - 系统设置查看与更新
 - 系统统计信息与最近日志查看
 
-这使得 AI 代理可以通过编程方式搜索和下载字幕，实现自动化字幕管理。
+`upload_subtitle_file` 通过已扫描媒体的 `file_id` 关联字幕，接受最大 10 MiB 的 Base64 内容，支持 srt、ass、ssa、vtt、sub、sup、zip 和 7z。可先调用 `list_subtitle_languages` 查询合法语言代码；同名字幕会自动追加序号，不会覆盖已有文件。
+
+这使得 AI 代理可以通过编程方式搜索、上传和下载字幕，实现自动化字幕管理。
 
 ## 📖 API 文档
 
@@ -208,6 +213,9 @@ curl -X POST "http://127.0.0.1:8000/media/paths?path=/mnt/media/movies&path_type
 
 # 触发库扫描
 curl -X POST "http://127.0.0.1:8000/media/match?path_type=tv"
+
+# 查询字幕语言目录
+curl "http://127.0.0.1:8000/system/subtitle-languages"
 ```
 
 ## 🧪 开发指南

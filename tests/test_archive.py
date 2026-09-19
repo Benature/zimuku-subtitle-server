@@ -3,6 +3,8 @@ import shutil
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from app.core.archive import ArchiveManager
 
 
@@ -94,6 +96,19 @@ def test_extract_zip_rejects_path_traversal(monkeypatch, tmp_path):
 
     assert files == []
     assert not list(Path(extract_to).rglob("*"))
+
+
+def test_extract_zip_enforces_resource_limits(tmp_path):
+    archive_path = tmp_path / "large.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("a.srt", "1234")
+        archive.writestr("b.srt", "5678")
+
+    with pytest.raises(ValueError, match="too many files"):
+        ArchiveManager.extract(str(archive_path), str(tmp_path / "files"), max_files=1)
+
+    with pytest.raises(ValueError, match="too large"):
+        ArchiveManager.extract(str(archive_path), str(tmp_path / "size"), max_total_size=7)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ from starlette.testclient import TestClient
 from app.db.models import Setting
 from app.db.session import create_db_and_tables
 from app.mcp.server import create_http_app, handle_call_tool, handle_list_tools
+from app.services.subtitle_upload_service import SubtitleUploadResult
 
 
 @pytest.fixture(autouse=True)
@@ -28,10 +29,53 @@ async def test_mcp_list_tools():
     assert "list_tasks" in tool_names
     assert "update_setting" in tool_names
     assert "get_system_stats" in tool_names
+    assert "list_subtitle_languages" in tool_names
+    assert "upload_subtitle_file" in tool_names
 
     # 验证 search_subtitles 的 schema
     search_tool = next(t for t in tools if t.name == "search_subtitles")
     assert "query" in search_tool.inputSchema["properties"]
+
+    upload_tool = next(t for t in tools if t.name == "upload_subtitle_file")
+    assert upload_tool.inputSchema["required"] == ["file_id", "filename", "content_base64"]
+    assert upload_tool.inputSchema["properties"]["language"]["enum"] == [
+        "zh-CN",
+        "zh-TW",
+        "en",
+        "zh-CN-en",
+    ]
+
+
+@pytest.mark.anyio
+async def test_mcp_lists_subtitle_languages():
+    result = await handle_call_tool("list_subtitle_languages", {})
+
+    assert '"code": "zh-CN"' in result[0].text
+    assert '"filename_tag": "zh-CN-en"' in result[0].text
+
+
+@pytest.mark.anyio
+async def test_mcp_upload_subtitle_file():
+    upload_result = SubtitleUploadResult(
+        file_id=7,
+        language="zh-CN",
+        saved_count=1,
+        saved_paths=["/media/Movie.zh-CN.srt"],
+    )
+    with patch("app.mcp.server.SubtitleUploadService.upload", return_value=upload_result) as upload:
+        result = await handle_call_tool(
+            "upload_subtitle_file",
+            {
+                "file_id": 7,
+                "filename": "subtitle.srt",
+                "content_base64": "YQ==",
+                "language": "zh-CN",
+            },
+        )
+
+    upload.assert_called_once()
+    assert "字幕文件上传成功" in result[0].text
+    assert '"saved_count": 1' in result[0].text
 
 
 @pytest.mark.anyio

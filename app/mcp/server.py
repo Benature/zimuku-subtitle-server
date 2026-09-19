@@ -14,11 +14,14 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 
+from ..core.subtitle_languages import SUBTITLE_LANGUAGES
 from ..db.models import SubtitleTask
 from ..db.session import create_db_and_tables, engine
 from ..services.media_service import MediaService, global_task_status
 from ..services.search_service import SearchService
 from ..services.settings_service import SettingsService
+from ..services.subtitle_inspection_service import SubtitleInspectionError, SubtitleInspectionService
+from ..services.subtitle_upload_service import SubtitleUploadError, SubtitleUploadService
 from ..services.system_service import SystemService
 from ..services.task_service import TaskService
 
@@ -276,6 +279,65 @@ def _media_tools() -> list[types.Tool]:
                 "required": ["title", "season"],
             },
         ),
+        types.Tool(
+            name="upload_subtitle_file",
+            description="上传字幕文件或字幕压缩包，并关联到指定的已扫描媒体文件",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_id": {"type": "integer", "description": "已扫描媒体文件 ID", "minimum": 1},
+                    "filename": {
+                        "type": "string",
+                        "description": "原始文件名，支持 srt/ass/ssa/vtt/sub/sup/zip/7z",
+                    },
+                    "content_base64": {"type": "string", "description": "文件内容的原始 Base64 编码"},
+                    "language": {
+                        "type": "string",
+                        "enum": [language.code for language in SUBTITLE_LANGUAGES],
+                        "description": "可选字幕语言代码，可通过 list_subtitle_languages 查询",
+                    },
+                },
+                "required": ["file_id", "filename", "content_base64"],
+            },
+        ),
+        types.Tool(
+            name="list_media_subtitles",
+            description="查询指定媒体文件的已有字幕列表，包含文件名、路径、大小以及通过实际内容分析得出的真实语言（如双语判定、中英文比例、抽样对白）",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_id": {"type": "integer", "description": "已扫描媒体文件 ID", "minimum": 1},
+                },
+                "required": ["file_id"],
+            },
+        ),
+        types.Tool(
+            name="read_subtitle_content",
+            description="读取指定媒体文件的已有字幕内容与纯文本对白，可验证其实际语言与文本内容",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_id": {"type": "integer", "description": "已扫描媒体文件 ID", "minimum": 1},
+                    "filename": {
+                        "type": "string",
+                        "description": "字幕文件名（当媒体关联多个字幕时必填，单个字幕时可省略）",
+                    },
+                    "max_lines": {
+                        "type": "integer",
+                        "description": "最大返回行数（默认 100）",
+                        "default": 100,
+                        "minimum": 1,
+                        "maximum": 2000,
+                    },
+                    "clean_text": {
+                        "type": "boolean",
+                        "description": "是否清理时间轴和样式代码，返回纯对白文本（默认 true）",
+                        "default": True,
+                    },
+                },
+                "required": ["file_id"],
+            },
+        ),
     ]
 
 
@@ -350,6 +412,11 @@ def _task_tools() -> list[types.Tool]:
 
 def _system_tools() -> list[types.Tool]:
     return [
+        types.Tool(
+            name="list_subtitle_languages",
+            description="列出系统支持的字幕语言代码及文件名标签",
+            inputSchema={"type": "object", "properties": {}},
+        ),
         types.Tool(
             name="list_settings",
             description="列出系统设置",
@@ -538,6 +605,65 @@ async def _handle_media_tool(name: str, arguments: dict[str, Any]) -> List[types
         except Exception as e:
             return _error(f"剧集季匹配出错: {str(e)}")
 
+    if name == "upload_subtitle_file":
+        file_id = arguments.get("file_id")
+        filename = arguments.get("filename")
+        content_base64 = arguments.get("content_base64")
+        if file_id is None or not filename or not content_base64:
+            return _missing_fields("file_id", "filename", "content_base64")
+        try:
+            with Session(engine) as session:
+                result = SubtitleUploadService.upload(
+                    session,
+                    file_id=file_id,
+                    filename=filename,
+                    content_base64=content_base64,
+                    language=arguments.get("language"),
+                )
+            return _success("字幕文件上传成功：", result.to_dict())
+        except SubtitleUploadError as exc:
+            return _error(f"字幕文件上传失败: {exc}")
+        except Exception as exc:
+            logger.exception("字幕文件上传发生未预期错误")
+            return _error(f"字幕文件上传失败: {exc}")
+
+    if name == "list_media_subtitles":
+        file_id = arguments.get("file_id")
+        if file_id is None:
+            return _missing_fields("file_id")
+        try:
+            with Session(engine) as session:
+                subtitles = SubtitleInspectionService.get_existing_subtitles(session, file_id)
+            return _success("已有字幕列表及语言检测：", [sub.to_dict() for sub in subtitles])
+        except SubtitleInspectionError as exc:
+            return _error(f"查询已有字幕失败: {exc}")
+        except Exception as exc:
+            logger.exception("查询已有字幕发生未预期错误")
+            return _error(f"查询已有字幕失败: {exc}")
+
+    if name == "read_subtitle_content":
+        file_id = arguments.get("file_id")
+        if file_id is None:
+            return _missing_fields("file_id")
+        filename = arguments.get("filename")
+        max_lines = arguments.get("max_lines", 100)
+        clean_text = arguments.get("clean_text", True)
+        try:
+            with Session(engine) as session:
+                result = SubtitleInspectionService.read_subtitle_content(
+                    session,
+                    file_id=file_id,
+                    filename=filename,
+                    max_lines=max_lines,
+                    clean_text=clean_text,
+                )
+            return _success("字幕内容与语言分析：", result.to_dict())
+        except SubtitleInspectionError as exc:
+            return _error(f"读取字幕内容失败: {exc}")
+        except Exception as exc:
+            logger.exception("读取字幕内容发生未预期错误")
+            return _error(f"读取字幕内容失败: {exc}")
+
     return None
 
 
@@ -622,6 +748,9 @@ async def _handle_task_tool(name: str, arguments: dict[str, Any]) -> List[types.
 
 
 def _handle_system_tool(name: str, arguments: dict[str, Any]) -> List[types.TextContent] | None:
+    if name == "list_subtitle_languages":
+        return _success("系统支持的字幕语言：", SystemService.get_subtitle_languages())
+
     if name == "list_settings":
         return _success("系统设置列表：", _serialize_models(SettingsService.get_all_settings()))
 

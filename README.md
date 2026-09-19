@@ -159,8 +159,8 @@ docker compose up frontend
 - Production backend images use tags without a suffix, such as `latest` or `1.0.0`
 - Develop backend images use the `-develop` suffix, such as `develop` or `1.0.0-develop`
 - Production frontend images use tags without a suffix, such as `latest` or `1.0.0`
-- The default [`docker-compose.yml`](/Users/cy/Projects/zimuku-subtitle-server/docker-compose.yml#L1) uses DockerHub images directly
-- [`docker-compose.develop.yml`](/Users/cy/Projects/zimuku-subtitle-server/docker-compose.develop.yml#L1) switches the backend to the `develop` target, builds locally, and bind-mounts backend source files for development
+- The default [`docker-compose.yml`](docker-compose.yml) uses DockerHub images directly
+- [`docker-compose.develop.yml`](docker-compose.develop.yml) switches the backend to the `develop` target, builds locally, and bind-mounts backend source files for development
 
 When using Docker-mounted media libraries, configure media paths in the app as `/media/movies` and `/media/tv`, not as the original host paths.
 
@@ -185,12 +185,17 @@ When using Compose deployment, MCP is mounted directly on the backend service po
 The current MCP coverage includes:
 
 - Subtitle search and download
+- Existing subtitle inspection and content reading (with automatic language detection, bilingual verification, and dialogue sampling)
+- Base64 subtitle upload for individual files and ZIP/7z archives
+- Read-only subtitle language catalog lookup
 - Media library path management, hierarchical media listing (movie/show/season/episode) with NFO title and alias search, scanned file listing, library scan, and auto-match
 - Download task creation, lookup, pagination, retry, deletion, and cleanup
 - Settings listing and updates
 - System stats and recent log retrieval
 
-This allows AI agents to programmatically search for and download subtitles.
+`upload_subtitle_file` associates a subtitle with a scanned media `file_id`. It accepts Base64 content up to 10 MiB in srt, ass, ssa, vtt, sub, sup, zip, or 7z format. Call `list_subtitle_languages` first to discover valid language codes. Existing subtitle files are preserved by adding a numeric suffix to new uploads.
+
+This allows AI agents to programmatically search for, upload, and download subtitles.
 
 ## 📖 API Reference
 
@@ -207,6 +212,9 @@ curl -X POST "http://127.0.0.1:8000/media/paths?path=/mnt/media/movies&path_type
 
 # Trigger library scan
 curl -X POST "http://127.0.0.1:8000/media/match?path_type=tv"
+
+# List supported subtitle languages
+curl "http://127.0.0.1:8000/system/subtitle-languages"
 
 # Search shows by title and return one aggregated record per show
 curl "http://127.0.0.1:8000/media/library?level=show&query=Foundation"

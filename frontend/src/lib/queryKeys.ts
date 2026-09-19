@@ -14,6 +14,10 @@ export const queryKeys = {
     all: ['settings'] as const,
     list: () => [...queryKeys.settings.all, 'list'] as const,
   },
+  system: {
+    all: ['system'] as const,
+    subtitleLanguages: () => [...queryKeys.system.all, 'subtitle-languages'] as const,
+  },
   search: {
     all: ['search'] as const,
     results: (query: string) => [...queryKeys.search.all, 'results', query] as const,
