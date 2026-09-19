@@ -43,7 +43,7 @@ class SubtitleTask(SQLModel, table=True):
     season: Optional[int] = None  # For TV series
     episode: Optional[int] = None  # For TV series
     language: Optional[str] = None  # For filename (简体/繁体/etc)
-    file_id: Optional[int] = Field(default=None, foreign_key="scannedfile.id")
+    file_id: Optional[int] = Field(default=None, index=True, foreign_key="scannedfile.id")
 
 
 class MediaPath(SQLModel, table=True):

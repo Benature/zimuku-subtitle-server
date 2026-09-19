@@ -29,11 +29,16 @@ NFO_SEARCH_COLUMNS = {
     "nfo_aliases": "VARCHAR",
 }
 
+SUBTITLE_TASK_MIGRATION_COLUMNS = {
+    "file_id": "INTEGER",
+}
+
 
 def create_db_and_tables():
     """初始化数据库表"""
     SQLModel.metadata.create_all(engine)
     _migrate_scanned_file_metadata_columns()
+    _migrate_subtitle_task_columns()
 
     # 初始化默认配置项
     _init_default_settings()
@@ -54,6 +59,22 @@ def _migrate_scanned_file_metadata_columns():
         connection.exec_driver_sql(
             "CREATE INDEX IF NOT EXISTS ix_scannedfile_nfo_original_title ON scannedfile (nfo_original_title)"
         )
+
+
+def _migrate_subtitle_task_columns():
+    """为已有 SQLite 数据库补充字幕任务的关联字段。"""
+    if engine.dialect.name != "sqlite":
+        return
+
+    with engine.begin() as connection:
+        existing_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(subtitletask)")}
+        if not existing_columns:
+            return
+        for name, column_type in SUBTITLE_TASK_MIGRATION_COLUMNS.items():
+            if name not in existing_columns:
+                connection.exec_driver_sql(f"ALTER TABLE subtitletask ADD COLUMN {name} {column_type}")
+
+        connection.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_subtitletask_file_id ON subtitletask (file_id)")
 
 
 def _init_default_settings():
