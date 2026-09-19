@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { autoMatchFile, matchTVSeason } from '../api';
-import { MediaSidebar } from '../components/MediaSidebar';
+import { MediaGridToolbar } from '../components/MediaGridToolbar';
+import { MediaCard } from '../components/MediaCard';
 import { MediaInfoCard } from '../components/MediaInfoCard';
-import { EmptySelectionState } from '../components/EmptySelectionState';
 import { MediaItem } from '../components/MediaItem';
 import { Search, Loader2 } from 'lucide-react';
 import { useMediaBrowserController } from '../hooks/useMediaBrowserController';
@@ -23,8 +24,6 @@ export default function SeriesPage() {
     setFilterOption,
     handleRefresh,
     status,
-    sidebarOpen,
-    toggleSidebar,
     setMatchingFileOptimistic,
     setMatchingSeasonOptimistic,
     selectedSeason,
@@ -37,6 +36,16 @@ export default function SeriesPage() {
     type: 'tv',
     unknownLabel: t('page.series.unknownSeries'),
   });
+
+  // 从仪表盘等页面带 ?title= 跳转进来时，直接展开详情面板。
+  const [detailOpen, setDetailOpen] = useState(
+    () => new URLSearchParams(window.location.search).has('title')
+  );
+
+  const handleSelect = (id: string) => {
+    setSelectedSeriesTitle(id);
+    setDetailOpen(true);
+  };
 
   const handleAutoSearch = async (fileId: number) => {
     setMatchingFileOptimistic(fileId, true);
@@ -64,50 +73,76 @@ export default function SeriesPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 w-full h-full max-w-[1800px] min-h-0">
-      <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-120px)] w-full min-h-0">
-        <div
-          className={`flex flex-col shrink-0 min-h-0 lg:transition-all lg:duration-300 lg:ease-in-out lg:overflow-hidden ${sidebarOpen ? 'lg:w-[380px] lg:opacity-100 lg:mr-6' : 'lg:w-0 lg:opacity-0 lg:mr-0'}`}
-        >
-          <MediaSidebar
-            items={sidebarItems}
-            searchTerm={searchTerm}
-            onSearchTermChange={setSearchTerm}
-            selectedTitle={selectedSeriesTitle}
-            onSelectTitle={setSelectedSeriesTitle}
-            searchPlaceholder={t('page.series.placeholder')}
-            emptyText={t('page.series.noSeries')}
-            onRefresh={handleRefresh}
-            isRefreshing={status.is_scanning}
-            title={t('tv')}
-            sortOption={sortOption}
-            onSortOptionChange={handleSortChange}
-            sortOrder={sortOrder}
-            filterOption={filterOption}
-            onFilterOptionChange={setFilterOption}
-          />
+    <div className="flex gap-6 w-full h-[calc(100vh-120px)] min-h-0 max-w-[1800px]">
+      <section className="flex-1 flex flex-col min-w-0 min-h-0 bg-surface-container-low rounded-2xl border border-outline-variant/5 overflow-hidden">
+        <MediaGridToolbar
+          title={t('tv')}
+          searchTerm={searchTerm}
+          onSearchTermChange={setSearchTerm}
+          searchPlaceholder={t('page.series.placeholder')}
+          onRefresh={handleRefresh}
+          isRefreshing={status.is_scanning}
+          sortOption={sortOption}
+          onSortOptionChange={handleSortChange}
+          sortOrder={sortOrder}
+          filterOption={filterOption}
+          onFilterOptionChange={setFilterOption}
+        />
+
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+          {sidebarItems.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-5">
+              {sidebarItems.map(item => (
+                <MediaCard
+                  key={item.id}
+                  item={item}
+                  selected={detailOpen && selectedSeriesTitle === item.id}
+                  onSelect={handleSelect}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center text-sm text-on-surface-variant font-label py-10 opacity-70">
+              {t('page.series.noSeries')}
+            </div>
+          )}
         </div>
+      </section>
 
-        {selectedSeries ? (
-          <section className="flex-1 flex flex-col min-h-0 bg-surface-container-low rounded-2xl overflow-hidden relative border border-outline-variant/5 max-w-full">
-            <MediaInfoCard
-              fileId={selectedSeries.firstFileId}
-              title={selectedSeries.title}
-              year={selectedSeries.year}
-              isTv={true}
-              count={totalEpisodesCount}
-            />
+      {selectedSeries && detailOpen && (
+        <>
+          <div
+            className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+            onClick={() => setDetailOpen(false)}
+          />
+          <section className="fixed lg:static inset-y-6 right-4 left-4 sm:left-auto sm:w-[520px] lg:inset-auto z-50 lg:z-auto lg:w-[440px] xl:w-[520px] shrink-0 flex flex-col min-h-0 bg-surface-container-low rounded-2xl overflow-hidden border border-outline-variant/5">
+            <div className="relative shrink-0">
+              <MediaInfoCard
+                fileId={selectedSeries.firstFileId}
+                title={selectedSeries.title}
+                year={selectedSeries.year}
+                isTv={true}
+                count={totalEpisodesCount}
+              />
+              <button
+                onClick={() => setDetailOpen(false)}
+                className="absolute top-4 right-4 z-10 w-9 h-9 rounded-full bg-black/50 backdrop-blur-md text-white flex items-center justify-center hover:bg-black/70 transition-colors active:scale-90"
+                title={t('action.close')}
+              >
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
 
-            <div className="flex-1 min-h-0 p-10 pt-6 space-y-8 overflow-y-auto custom-scrollbar">
+            <div className="flex-1 min-h-0 p-6 pt-4 space-y-6 overflow-y-auto custom-scrollbar">
               <div className="flex justify-between items-center bg-surface-container/50 p-4 rounded-xl border border-outline-variant/10">
-                <div className="flex items-center gap-3">
-                  <span className="material-symbols-outlined text-on-surface-variant">folder_open</span>
-                  <code className="text-sm text-on-surface-variant font-body">{selectedSeries.seriesRootPath}</code>
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="material-symbols-outlined text-on-surface-variant shrink-0">folder_open</span>
+                  <code className="text-sm text-on-surface-variant font-body truncate">{selectedSeries.seriesRootPath}</code>
                 </div>
               </div>
 
               <div className="flex items-center justify-between border-b border-outline-variant/10 relative">
-                <div className="flex gap-10 overflow-x-auto scrollbar-hide">
+                <div className="flex gap-6 overflow-x-auto scrollbar-hide">
                   {availableSeasons.map(s => (
                     <button
                       key={s}
@@ -182,20 +217,8 @@ export default function SeriesPage() {
               </div>
             </div>
           </section>
-        ) : (
-          <div className="flex-1">
-            <EmptySelectionState typeName={t('tv')} />
-          </div>
-        )}
-      </div>
-      <div className="lg:hidden fixed bottom-6 right-6 z-50">
-        <button
-          onClick={toggleSidebar}
-          className="w-14 h-14 bg-primary text-white rounded-full shadow-lg shadow-indigo-500/30 flex items-center justify-center active:scale-90 transition-transform"
-        >
-          <span className="material-symbols-outlined">{sidebarOpen ? 'close' : 'menu'}</span>
-        </button>
-      </div>
+        </>
+      )}
     </div>
   );
 }

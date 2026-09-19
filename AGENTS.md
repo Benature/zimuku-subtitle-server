@@ -72,7 +72,8 @@ npm run lint
 
 - **React 19** + Vite + Tailwind CSS v4 + TypeScript
 - 页面组件：SearchPage、MoviesPage、SeriesPage、TasksPage、SettingsPage
-- 共享组件：MediaConfigPanel、MediaSidebar、MediaInfoCard、EmptySelectionState
+- 共享组件：MediaConfigPanel、MediaCard、MediaGridToolbar、MediaInfoCard
+- 电影/剧集页采用「卡片墙 + 侧边详情」布局：主体为影视海报卡片网格，点击卡片在右侧（移动端为抽屉）展开详情面板
 - 自定义 Hook：useMediaPolling、useMediaGrouping
 
 ### 数据库
