@@ -41,9 +41,10 @@ class MediaScanPipeline:
 
     def run(self) -> None:
         self.cleanup_orphan_records()
-        self.cleanup_missing_files()
 
         media_paths = self.load_enabled_paths()
+        self.cleanup_missing_files(media_paths)
+
         if not media_paths:
             return
 
@@ -93,13 +94,33 @@ class MediaScanPipeline:
             logger.info(f"清理了 {len(orphan_files)} 条孤儿文件记录")
             self.session.commit()
 
-    def cleanup_missing_files(self) -> None:
+    @staticmethod
+    def is_path_accessible(media_path: MediaPath) -> bool:
+        scan_dir = Path(media_path.path)
+        return scan_dir.exists() and scan_dir.is_dir()
+
+    def cleanup_missing_files(self, media_paths: Sequence[MediaPath]) -> None:
+        # 挂载点缺失（如磁盘未挂载、容器挂载配置丢失）时，媒体根目录整体不可访问，
+        # 其下文件必然全部"不存在"，若照常清理会误删全部记录；此时跳过这些路径的清理
+        inaccessible_ids = {
+            media_path.id
+            for media_path in media_paths
+            if media_path.id is not None and not self.is_path_accessible(media_path)
+        }
+        if inaccessible_ids:
+            logger.warning(
+                "媒体路径不可访问，跳过其文件记录清理: %s",
+                [media_path.path for media_path in media_paths if media_path.id in inaccessible_ids],
+            )
+
         statement = select(ScannedFile)
         if self.path_type:
             statement = statement.where(ScannedFile.type == self.path_type)
 
         removed_files = []
         for scanned_file in self.session.exec(statement).all():
+            if scanned_file.path_id in inaccessible_ids:
+                continue
             if not Path(scanned_file.file_path).exists():
                 self.session.delete(scanned_file)
                 removed_files.append(scanned_file)
@@ -125,8 +146,9 @@ class MediaScanPipeline:
     def discover_path(self, media_path: MediaPath) -> Optional[List[DiscoveredMediaFile]]:
         scan_dir = Path(media_path.path)
         if not scan_dir.exists() or not scan_dir.is_dir():
-            logger.debug(f"路径不存在或不是目录: {media_path.path}")
-            return []
+            # 返回 None 让调用方跳过该路径的清理与扫描，避免挂载缺失时误删记录
+            logger.warning(f"媒体路径不可访问，跳过扫描: {media_path.path}")
+            return None
 
         logger.info(f"扫描路径: {media_path.path}")
         logger.debug(f"开始扫描路径: {media_path.path}")

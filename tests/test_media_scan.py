@@ -88,6 +88,39 @@ async def test_scan_persists_nfo_search_fields(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_scan_preserves_records_when_media_root_inaccessible(tmp_path):
+    """媒体根目录不可访问（如挂载缺失）时，其下记录不得被清理，避免误删全库。"""
+    missing_root = tmp_path / "unmounted"
+    fake_path = missing_root / "Show" / "Show.S01E01.mkv"
+
+    with Session(engine) as session:
+        media_path = MediaPath(path=str(missing_root), type="tv", enabled=True)
+        session.add(media_path)
+        session.commit()
+        session.refresh(media_path)
+        session.add(
+            ScannedFile(
+                path_id=media_path.id,
+                file_path=str(fake_path),
+                filename=fake_path.name,
+                extracted_title="Show",
+                type="tv",
+                allow_no_subtitle=True,
+            )
+        )
+        session.commit()
+
+    await MediaService.run_media_scan_and_match("tv")
+
+    with Session(engine) as session:
+        files = session.exec(select(ScannedFile)).all()
+
+    assert len(files) == 1
+    assert files[0].filename == fake_path.name
+    assert files[0].allow_no_subtitle is True
+
+
+@pytest.mark.anyio
 async def test_cleanup_non_existent_files(temp_media_dir):
     fake_path = temp_media_dir / "non_existent.mkv"
 
