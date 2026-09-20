@@ -137,7 +137,11 @@ python -m app.mcp.run_stdio
 - 剧集季补全采用顺序执行模式（间隔 2s），避免并发导致封禁
 - 字幕下载完成后默认自动执行音轨对齐（设置项 `auto_align_after_download`，前端系统设置页可关闭；对齐前自动备份 `.orig` 原字幕，可随时还原；对齐失败仅记录日志，不影响任务状态）
 - 对齐状态是字幕级属性：对齐/检查成功写入 `SubtitleAlignmentState`，还原原字幕时重置为 unknown；批量全库检查可用 `python -m app.scripts.check_library_alignment`（支持分片并行与 `--import-report` 历史报告回写）
-- 定时扫描补字幕：设置项 `schedule_enabled` / `schedule_cron`（默认每天 03:00），触发后先刷新媒体库，再对缺字幕的作品顺序补全（间隔 2s）；`schedule_max_works_per_run`（默认 1，0 表示不限）限制每次运行补全的作品数量，按缺字幕文件数降序选取、标题升序兜底；完成后可按 `feishu_notify_enabled` / `feishu_webhook_url` / `feishu_webhook_secret`（加签可选）推送飞书汇总通知（含本次补全作品与剩余待补数）；前端系统设置页有专属配置卡片，支持立即执行与发送测试通知
+- 剧集级批量对齐：剧集详情面板的「全剧音轨对齐」按钮调用 `POST /media/series/align-subtitles`（body/query: `title`），后台对整部剧所有集的全部关联字幕顺序执行对齐（单条失败不中断，自动备份 .orig）；任务状态通过 `/media/task-status` 的 `aligning_series`（剧集标题列表）与 `aligning_files`（文件 ID 列表）暴露，前端轮询展示「对齐中」状态（卡片墙左上角 tag 旋转）
+- 对齐资源守卫：alass/ffsubsync 以 `nice -n 10` 低优先级运行；所有对齐类操作（单文件对齐、对齐检查、任务对齐、剧集批量对齐）执行前通过 `app/core/system_load.py` 检查系统负载（load1/核数 ≥ 1.0 或可用内存 < 10% 判定繁忙），繁忙时 API 返回 503、MCP 返回错误提示；下载后自动对齐在系统繁忙时直接跳过；MCP 工具 `align_subtitle` / `check_subtitle_alignment` 及各 API body 均支持 `force` 参数（默认 false）跳过守卫；批量入口守卫一次，批量中途不再重复检查
+- 自动匹配搜索词按优先级回退：NFO 元数据（nfo_title → nfo_original_title → nfo_aliases）优先，最后回退到目录名提取的 extracted_title（`build_search_queries`），第一个有搜索结果的词即被采用
+- 定时扫描补字幕：设置项 `schedule_enabled` / `schedule_cron`（默认每天 03:00），触发后先刷新媒体库，再对缺字幕的作品顺序补全（间隔 2s）；`schedule_max_works_per_run`（默认 1，0 表示不限）限制每次运行补全的作品数量，优先选取能检索到 NFO 元数据（nfo_title / nfo_original_title）的作品，其次按缺字幕文件数降序、标题升序兜底；完成后可按 `feishu_notify_enabled` / `feishu_webhook_url` / `feishu_webhook_secret`（加签可选）推送飞书汇总通知（含本次补全作品与剩余待补数）；前端系统设置页有专属配置卡片，支持立即执行与发送测试通知
+- 「允许无字幕」作品标记：电影/剧集详情面板的开关调用 `POST /media/works/allow-no-subtitle`（body: `media_type`, `title`, `allow`），按作品下全部文件置位 `ScannedFile.allow_no_subtitle`；批量补全（`LibraryMatchWorkflow`）与季补全（`SeasonMatchWorkflow`）跳过已标记文件，媒体扫描时新发现文件自动继承同作品（类型 + 规范化标题）标记；前端卡片墙显示「无需字幕」徽标且不计入缺字幕筛选/统计，手动单文件匹配不受影响
 - 修改代码后，按照需要修订文档；有功能修改需要看是否修改、添加对应的单元测试
 
 ## Docker 与 Compose 约定

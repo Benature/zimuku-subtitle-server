@@ -12,6 +12,7 @@ from app.services.auto_match_workflow import (
     LibraryMatchWorkflow,
     SeasonMatchWorkflow,
     SubtitleCandidateScorer,
+    build_search_queries,
 )
 
 
@@ -83,6 +84,117 @@ async def test_auto_match_retries_until_top_five_candidates(monkeypatch, tmp_pat
     assert matched is True
     assert requested_links == [f"http://example.com/{index}" for index in range(5)]
     assert (video_path.parent / "Show.S01E02.ass").exists()
+
+
+def test_build_search_queries_prefers_nfo_and_deduplicates():
+    queries = build_search_queries(
+        extracted_title="ModernFamily",
+        nfo_title="摩登家庭",
+        nfo_original_title="Modern Family",
+        nfo_aliases='["摩登家庭", "Modern Family (2009)"]',
+    )
+
+    assert queries == ["摩登家庭", "Modern Family", "ModernFamily"]
+
+
+def test_build_search_queries_tolerates_invalid_aliases_and_falls_back():
+    assert build_search_queries(extracted_title="Show (2024)", nfo_aliases="not-json") == ["Show"]
+    assert build_search_queries(extracted_title="Show", nfo_title="  ") == ["Show"]
+
+
+@pytest.mark.anyio
+async def test_auto_match_falls_back_to_nfo_title(monkeypatch, tmp_path):
+    video_path = tmp_path / "ModernFamily" / "摩登家庭S04E01.mkv"
+    video_path.parent.mkdir(parents=True)
+    video_path.write_text("video", encoding="utf-8")
+
+    scanned_file = ScannedFile(
+        path_id=1,
+        type="tv",
+        file_path=str(video_path),
+        filename=video_path.name,
+        extracted_title="ModernFamily",
+        nfo_title="摩登家庭",
+        nfo_original_title="Modern Family",
+        season=4,
+        episode=1,
+    )
+    with Session(engine) as session:
+        session.add(scanned_file)
+        session.commit()
+        session.refresh(scanned_file)
+
+    searched_queries = []
+
+    async def fake_search(query: str, season=None, episode=None):
+        searched_queries.append(query)
+        if query == "摩登家庭":
+            return [SimpleNamespace(link="http://example.com/0")]
+        return []
+
+    agent = SimpleNamespace(
+        search=AsyncMock(side_effect=fake_search),
+        get_download_page_links=AsyncMock(return_value=["http://example.com/0.zip"]),
+        download_file=AsyncMock(return_value=("Show.S04E01.chs.ass", b"subtitle")),
+        close=AsyncMock(return_value=None),
+    )
+
+    monkeypatch.setattr("app.services.auto_match_workflow.ZimukuAgent", lambda: agent)
+    monkeypatch.setattr("app.services.auto_match_workflow.get_temp_path", lambda: str(tmp_path / "storage" / "tmp"))
+
+    service = AutoMatchWorkflow(session_factory=session_scope)
+    matched = await service.run_for_file(scanned_file.id)
+
+    assert matched is True
+    # 优先使用 nfo_title 搜索，命中后不再尝试其他搜索词
+    assert searched_queries == ["摩登家庭"]
+    assert (video_path.parent / "摩登家庭S04E01.ass").exists()
+
+
+@pytest.mark.anyio
+async def test_auto_match_tries_extracted_title_when_nfo_queries_miss(monkeypatch, tmp_path):
+    video_path = tmp_path / "ModernFamily" / "摩登家庭S04E01.mkv"
+    video_path.parent.mkdir(parents=True)
+    video_path.write_text("video", encoding="utf-8")
+
+    scanned_file = ScannedFile(
+        path_id=1,
+        type="tv",
+        file_path=str(video_path),
+        filename=video_path.name,
+        extracted_title="ModernFamily",
+        nfo_title="不存在的名字",
+        season=4,
+        episode=1,
+    )
+    with Session(engine) as session:
+        session.add(scanned_file)
+        session.commit()
+        session.refresh(scanned_file)
+
+    searched_queries = []
+
+    async def fake_search(query: str, season=None, episode=None):
+        searched_queries.append(query)
+        if query == "ModernFamily":
+            return [SimpleNamespace(link="http://example.com/0")]
+        return []
+
+    agent = SimpleNamespace(
+        search=AsyncMock(side_effect=fake_search),
+        get_download_page_links=AsyncMock(return_value=["http://example.com/0.zip"]),
+        download_file=AsyncMock(return_value=("Show.S04E01.chs.ass", b"subtitle")),
+        close=AsyncMock(return_value=None),
+    )
+
+    monkeypatch.setattr("app.services.auto_match_workflow.ZimukuAgent", lambda: agent)
+    monkeypatch.setattr("app.services.auto_match_workflow.get_temp_path", lambda: str(tmp_path / "storage" / "tmp"))
+
+    service = AutoMatchWorkflow(session_factory=session_scope)
+    matched = await service.run_for_file(scanned_file.id)
+
+    assert matched is True
+    assert searched_queries == ["不存在的名字", "ModernFamily"]
 
 
 @pytest.mark.anyio
@@ -254,6 +366,44 @@ async def test_library_match_respects_max_works_and_prefers_largest_gap():
     assert stats.matched == 3
     assert stats.remaining_works == 2
     assert len(matched_ids) == 3
+
+
+@pytest.mark.anyio
+async def test_library_match_prioritizes_works_with_nfo_metadata():
+    with Session(engine) as session:
+        for index in range(3):
+            _add_pending(session, "Big Show", f"BigShow.S01E0{index}.mkv")
+        nfo_file = ScannedFile(
+            path_id=1,
+            type="tv",
+            file_path="/library/NfoShow.S01E01.mkv",
+            filename="NfoShow.S01E01.mkv",
+            extracted_title="Nfo Show",
+            nfo_title="NFO 剧集",
+            has_subtitle=False,
+        )
+        session.add(nfo_file)
+        session.commit()
+
+    async def fake_auto_match(file_id: int):
+        return True
+
+    async def fake_sleep(seconds: float):
+        return None
+
+    service = LibraryMatchWorkflow(
+        session_factory=session_scope,
+        auto_match_runner=fake_auto_match,
+        sleep_func=fake_sleep,
+        max_works=1,
+    )
+
+    stats = await service.run()
+
+    # 虽然 Big Show 缺口更大，但 Nfo Show 有 NFO 元数据，应优先处理
+    assert stats.titles == ["Nfo Show"]
+    assert stats.total == 1
+    assert stats.remaining_works == 1
 
 
 @pytest.mark.anyio

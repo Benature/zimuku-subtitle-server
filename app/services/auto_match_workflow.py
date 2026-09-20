@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import re
 import shutil
@@ -24,6 +25,36 @@ def normalize_media_title(title: str) -> str:
     return re.sub(r"\s*\(\d{4}\)", "", title).strip()
 
 
+def build_search_queries(
+    extracted_title: Optional[str],
+    nfo_title: Optional[str] = None,
+    nfo_original_title: Optional[str] = None,
+    nfo_aliases: Optional[str] = None,
+) -> List[str]:
+    """构建按优先级排序、去重后的搜索词列表。
+
+    优先使用 NFO 元数据（nfo_title → nfo_original_title → aliases），
+    最后回退到目录名提取的 extracted_title。
+    """
+    aliases: List[str] = []
+    if nfo_aliases:
+        try:
+            parsed = json.loads(nfo_aliases)
+            if isinstance(parsed, list):
+                aliases = [str(alias) for alias in parsed]
+        except (ValueError, TypeError):
+            logger.debug("nfo_aliases JSON 解析失败，忽略: %s", nfo_aliases)
+
+    queries: List[str] = []
+    for candidate in [nfo_title, nfo_original_title, *aliases, extracted_title]:
+        if not candidate:
+            continue
+        normalized = normalize_media_title(candidate)
+        if normalized and normalized not in queries:
+            queries.append(normalized)
+    return queries
+
+
 @dataclass
 class FileMatchContext:
     file_path: str
@@ -32,6 +63,7 @@ class FileMatchContext:
     media_type: str
     season: Optional[int]
     episode: Optional[int]
+    search_queries: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -93,6 +125,12 @@ class AutoMatchWorkflow:
                 media_type=file_record.type,
                 season=file_record.season,
                 episode=file_record.episode,
+                search_queries=build_search_queries(
+                    extracted_title=file_record.extracted_title,
+                    nfo_title=file_record.nfo_title,
+                    nfo_original_title=file_record.nfo_original_title,
+                    nfo_aliases=file_record.nfo_aliases,
+                ),
             )
 
     def mark_file_has_subtitle(self, file_id: int):
@@ -116,16 +154,14 @@ class AutoMatchWorkflow:
         if not file_context:
             return False
 
-        query = normalize_media_title(file_context.extracted_title)
         season, episode = self._resolve_episode_context(file_context)
 
         with log_context(correlation_id=f"auto-{file_id}", job_name="auto-match", entity_id=str(file_id)):
             logger.info("开始自动匹配: %s", file_context.filename)
             agent = self._agent_factory()
             try:
-                results = await agent.search(query, season=season, episode=episode)
+                results = await self._search_with_fallback_queries(agent, file_context, season, episode)
                 if not results:
-                    logger.info("自动匹配无搜索结果 query=%s", query)
                     return False
 
                 for attempt_index, best_match in enumerate(results[:5]):
@@ -144,6 +180,24 @@ class AutoMatchWorkflow:
                 return False
             finally:
                 await agent.close()
+
+    async def _search_with_fallback_queries(
+        self,
+        agent: ZimukuAgent,
+        file_context: FileMatchContext,
+        season: Optional[int],
+        episode: Optional[int],
+    ):
+        """按优先级依次尝试搜索词，返回第一个有结果的搜索词对应的结果列表。"""
+        queries = file_context.search_queries or [normalize_media_title(file_context.extracted_title)]
+        for query in queries:
+            results = await agent.search(query, season=season, episode=episode)
+            if results:
+                if query != queries[0]:
+                    logger.info("回退搜索词命中 query=%s", query)
+                return results
+            logger.info("自动匹配无搜索结果 query=%s", query)
+        return []
 
     async def _try_candidate(
         self,
@@ -284,8 +338,8 @@ class SeasonMatchWorkflow:
 class LibraryMatchWorkflow:
     """全库批量补全：对缺失字幕的作品（剧集/电影）执行自动匹配。
 
-    按 ``max_works`` 限制每次运行处理的作品数量（缺字幕文件最多者优先，
-    0 表示不限），避免单次运行请求过多导致封禁。
+    按 ``max_works`` 限制每次运行处理的作品数量（有 NFO 元数据的作品优先，
+    其次按缺字幕文件数降序、标题升序兜底，0 表示不限），避免单次运行请求过多导致封禁。
     """
 
     def __init__(
@@ -309,8 +363,12 @@ class LibraryMatchWorkflow:
             files = session.exec(statement).all()
             return [(file_record.id, file_record.filename) for file_record in files if file_record.id is not None]
 
-    def load_pending_groups(self) -> dict[str, List[tuple[int, str]]]:
-        """按作品（规范化标题）分组缺失字幕的文件（跳过允许无字幕的作品）。"""
+    def load_pending_groups(self) -> tuple[dict[str, List[tuple[int, str]]], set[str]]:
+        """按作品（规范化标题）分组缺失字幕的文件（跳过允许无字幕的作品）。
+
+        返回 (分组, 含 NFO 元数据的作品标题集合)：任一缺字幕文件带 nfo_title
+        或 nfo_original_title 即视为该作品可检索到 NFO 元数据。
+        """
         with self._session_factory() as session:
             statement = select(ScannedFile).where(
                 col(ScannedFile.has_subtitle).is_(False),
@@ -319,22 +377,30 @@ class LibraryMatchWorkflow:
             files = session.exec(statement).all()
 
         groups: dict[str, List[tuple[int, str]]] = {}
+        nfo_titles: set[str] = set()
         for file_record in files:
             if file_record.id is None:
                 continue
             title = normalize_media_title(file_record.extracted_title or file_record.filename)
             groups.setdefault(title, []).append((file_record.id, file_record.filename))
-        return groups
+            if file_record.nfo_title or file_record.nfo_original_title:
+                nfo_titles.add(title)
+        return groups, nfo_titles
 
-    def select_works(self, groups: dict[str, List[tuple[int, str]]]) -> tuple[List[tuple[str, List]], int]:
-        """按缺字幕文件数降序（标题升序兜底）选择本次运行的作品，返回 (选中项, 剩余作品数)。"""
-        ordered = sorted(groups.items(), key=lambda item: (-len(item[1]), item[0]))
+    def select_works(
+        self,
+        groups: dict[str, List[tuple[int, str]]],
+        nfo_titles: set[str],
+    ) -> tuple[List[tuple[str, List]], int]:
+        """按 NFO 元数据优先、缺字幕文件数降序（标题升序兜底）选择本次运行的作品，返回 (选中项, 剩余作品数)。"""
+        ordered = sorted(groups.items(), key=lambda item: (item[0] not in nfo_titles, -len(item[1]), item[0]))
         if self._max_works <= 0:
             return ordered, 0
         return ordered[: self._max_works], max(0, len(ordered) - self._max_works)
 
     async def run(self) -> BatchMatchStats:
-        selected, remaining = self.select_works(self.load_pending_groups())
+        groups, nfo_titles = self.load_pending_groups()
+        selected, remaining = self.select_works(groups, nfo_titles)
         stats = BatchMatchStats(
             total=sum(len(files) for _, files in selected),
             titles=[title for title, _ in selected],
