@@ -2,6 +2,7 @@ import os
 import shutil
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -63,43 +64,44 @@ def test_archive_manager_recognizes_supported_extensions():
     assert not ArchiveManager.is_archive("subtitle.tar.gz")
 
 
-class _FakeRarInfo:
-    def __init__(self, filename: str, size: int = 4):
-        self.filename = filename
-        self.file_size = size
+def _fake_bsdtar_run(monkeypatch, names: list[str]):
+    """模拟 bsdtar：-tf 返回条目列表，-xf 在目标目录创建对应文件。"""
 
-    @staticmethod
-    def is_dir():
-        return False
+    def fake_run(cmd, capture_output=False, text=False):
+        if cmd[1] == "-tf":
+            return SimpleNamespace(returncode=0, stdout="\n".join(names) + "\n", stderr="")
+        if cmd[1] == "-xf":
+            target_dir = Path(cmd[cmd.index("-C") + 1])
+            for name in names:
+                if name.endswith("/"):
+                    continue
+                file_path = target_dir / name
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                file_path.write_text("srt!", encoding="utf-8")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr("app.core.archive.manager.subprocess.run", fake_run)
 
 
-def _fake_rar_file(entries: list):
-    class FakeRarFile:
-        def __init__(self, *_args, **_kwargs):
-            pass
+def test_extract_dispatches_by_magic_bytes_for_mislabeled_rar(monkeypatch, tmp_path):
+    """扩展名为 .zip 但内容实为 RAR 的包，应按魔数识别走 RAR 解压。"""
+    archive_path = tmp_path / "mislabeled.zip"
+    archive_path.write_bytes(b"Rar!\x1a\x07\x00\xcf" + b"\x00" * 32)
+    extract_to = tmp_path / "out"
+    _fake_bsdtar_run(monkeypatch, ["episode.srt"])
 
-        def __enter__(self):
-            return self
+    files = ArchiveManager.extract(str(archive_path), str(extract_to))
 
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def infolist(self):
-            return entries
-
-        def read(self, _name):
-            return b"srt!"
-
-    return FakeRarFile
+    assert files == [str((extract_to / "episode.srt").resolve())]
+    assert (extract_to / "episode.srt").exists()
 
 
 def test_extract_rar_extracts_entries(monkeypatch, tmp_path):
     archive_path = tmp_path / "pack.rar"
     archive_path.write_bytes(b"fake")
     extract_to = tmp_path / "out"
-
-    entries = [_FakeRarInfo("Season 04/摩登家庭S04E01.srt")]
-    monkeypatch.setattr("app.core.archive.manager.rarfile.RarFile", _fake_rar_file(entries))
+    _fake_bsdtar_run(monkeypatch, ["Season 04/摩登家庭S04E01.srt"])
 
     files = ArchiveManager.extract(str(archive_path), str(extract_to))
 
@@ -111,23 +113,16 @@ def test_extract_rar_extracts_entries(monkeypatch, tmp_path):
 def test_extract_rar_rejects_path_traversal(monkeypatch, tmp_path):
     archive_path = tmp_path / "unsafe.rar"
     archive_path.write_bytes(b"fake")
-    extract_to = tmp_path / "out"
+    _fake_bsdtar_run(monkeypatch, ["../../etc/passwd"])
 
-    entries = [_FakeRarInfo("../../etc/passwd")]
-    monkeypatch.setattr("app.core.archive.manager.rarfile.RarFile", _fake_rar_file(entries))
-
-    files = ArchiveManager.extract(str(archive_path), str(extract_to))
-
-    assert files == []
-    assert not list(Path(extract_to).rglob("*"))
+    with pytest.raises(ValueError, match="Unsafe archive entry"):
+        ArchiveManager.extract(str(archive_path), str(tmp_path / "out"))
 
 
 def test_extract_rar_enforces_resource_limits(monkeypatch, tmp_path):
     archive_path = tmp_path / "large.rar"
     archive_path.write_bytes(b"fake")
-
-    entries = [_FakeRarInfo("a.srt"), _FakeRarInfo("b.srt")]
-    monkeypatch.setattr("app.core.archive.manager.rarfile.RarFile", _fake_rar_file(entries))
+    _fake_bsdtar_run(monkeypatch, ["a.srt", "b.srt"])
 
     with pytest.raises(ValueError, match="too many files"):
         ArchiveManager.extract(str(archive_path), str(tmp_path / "files"), max_files=1)

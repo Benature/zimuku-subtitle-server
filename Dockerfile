@@ -33,8 +33,8 @@ RUN pip install -r requirements.txt
 
 FROM python-base AS runtime-base
 
-# ffmpeg 用于音轨对齐；7zip（7zz）作为 rarfile 的 RAR 解压后端
-RUN apk add --no-cache ffmpeg 7zip
+# ffmpeg 用于音轨对齐；libarchive-tools（bsdtar）用于 RAR 字幕包解压
+RUN apk add --no-cache ffmpeg libarchive-tools
 
 # 音轨对齐引擎：alass 静态二进制（仅 x86_64；其他架构可通过 ZIMUKU_ALASS_PATH 外挂）
 COPY docker/binaries/alass /usr/local/bin/alass
