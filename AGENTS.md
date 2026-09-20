@@ -57,7 +57,7 @@ npm run lint
 - **`app/api/`** - REST API 路由（media、search、tasks、settings、schedule、system）
 - **`app/core/`** - 核心业务逻辑
   - `scraper.py` - Zimuku 网页爬虫，实现三层递进匹配策略（搜索页 → 季详情页 → 兜底模式）
-  - `archive.py` - ZIP/7z 压缩包解压，解决文件名乱码（CP437 → GBK）
+  - `archive.py`（`app/core/archive/`）- ZIP/7z/RAR 压缩包解压，解决文件名乱码（CP437 → GBK）；RAR 依赖 rarfile + 系统 unrar
   - `ocr.py` - 轻量级像素采样 OCR 引擎，用于验证码识别
   - `aligner.py` - 字幕音轨对齐引擎，封装 alass/ffsubsync 调用、ffmpeg 依赖检测与 UTF-8 编码规整
   - `notifier.py` - 飞书自定义机器人通知（支持加签 secret），发送失败仅记录日志
@@ -152,6 +152,7 @@ python -m app.mcp.run_stdio
 - 生产和测试环境变量分别参考 `.env.production.example` 与 `.env.test.example`
 - 媒体库目录应通过 Compose `volumes` 挂载到容器内；在应用中配置媒体路径时，应填写容器内路径而不是宿主机原始路径
 - 音轨对齐依赖：镜像内置 `ffmpeg`（apk）与 `alass` 静态二进制（`docker/binaries/alass`，v2.0.0，x86_64）；升级 alass 时直接替换该二进制文件。其他架构可通过环境变量 `ZIMUKU_ALASS_PATH` / `ZIMUKU_FFMPEG_PATH` 指定外部工具路径
+- RAR 解压依赖：镜像内置 `7zip`（apk，提供 7zz 作为 rarfile 后端）；本地开发环境如需真实解压 RAR 需自行安装 unrar/unar/bsdtar/7z 之一
 - 修改 Dockerfile、Compose 文件或环境模板后，至少执行以下校验：
   - `docker compose config`
   - 相关镜像的 `docker compose build` 或 `docker build --target ...`

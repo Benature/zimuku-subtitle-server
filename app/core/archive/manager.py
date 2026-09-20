@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import py7zr
+import rarfile
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 class ArchiveManager:
     """压缩包管理器，支持解压并修复文件名乱码"""
 
-    SUPPORTED_ARCHIVE_EXTENSIONS = (".zip", ".7z")
+    SUPPORTED_ARCHIVE_EXTENSIONS = (".zip", ".7z", ".rar")
 
     @staticmethod
     def _resolve_safe_target(base_dir: str, relative_name: str) -> Path:
@@ -59,6 +60,8 @@ class ArchiveManager:
             return ArchiveManager._extract_zip(file_path, extract_to, max_files, max_total_size)
         if file_path.lower().endswith(".7z"):
             return ArchiveManager._extract_7z(file_path, extract_to, max_files, max_total_size)
+        if file_path.lower().endswith(".rar"):
+            return ArchiveManager._extract_rar(file_path, extract_to, max_files, max_total_size)
 
         logger.warning(f"Unsupported archive format: {file_path}")
         return []
@@ -138,6 +141,45 @@ class ArchiveManager:
                         raise ValueError(f"Archive is too large after extraction: {extracted_size} > {max_total_size}")
                     extracted_files.append(str(full_path))
                     logger.info(f"Extracted (7z): {name}")
+
+        return extracted_files
+
+    @staticmethod
+    def _extract_rar(
+        file_path: str,
+        extract_to: str,
+        max_files: Optional[int] = None,
+        max_total_size: Optional[int] = None,
+    ) -> List[str]:
+        # rarfile 依赖外部工具（unrar/unar/bsdtar/7zz），镜像内置 7zip（7zz）
+        extracted_files = []
+        with rarfile.RarFile(file_path, "r") as rf:
+            file_infos = [info for info in rf.infolist() if not info.is_dir()]
+            if max_files is not None and len(file_infos) > max_files:
+                raise ValueError(f"Archive contains too many files: {len(file_infos)} > {max_files}")
+            if max_total_size is not None:
+                total_size = sum(info.file_size for info in file_infos)
+                if total_size > max_total_size:
+                    raise ValueError(f"Archive is too large after extraction: {total_size} > {max_total_size}")
+
+            extracted_size = 0
+            for info in file_infos:
+                # RAR 文件名以 Unicode 存储，无需像 ZIP 一样修复 CP437 乱码
+                relative_name = ArchiveManager._normalize_archive_name(info.filename)
+                if relative_name is None:
+                    continue
+
+                target_path = ArchiveManager._resolve_safe_target(extract_to, str(relative_name))
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                content = rf.read(info.filename)
+                extracted_size += len(content)
+                if max_total_size is not None and extracted_size > max_total_size:
+                    raise ValueError(f"Archive is too large after extraction: {extracted_size} > {max_total_size}")
+                with open(target_path, "wb") as f:
+                    f.write(content)
+
+                extracted_files.append(str(target_path))
+                logger.info(f"Extracted (rar): {relative_name}")
 
         return extracted_files
 

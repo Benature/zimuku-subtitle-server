@@ -5,5 +5,6 @@ beautifulsoup4==4.14.3
 sqlmodel==0.0.37
 python-multipart==0.0.22
 py7zr==1.1.0
+rarfile==4.5
 mcp==1.26.0
 apscheduler==3.11.0
