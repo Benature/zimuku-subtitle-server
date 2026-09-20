@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { alignSeriesSubtitles, autoMatchFile, matchTVSeason } from '../api';
 import { AllowNoSubtitleToggle } from '../components/AllowNoSubtitleToggle';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { MediaGridToolbar } from '../components/MediaGridToolbar';
 import { MediaCard } from '../components/MediaCard';
 import { MediaInfoCard } from '../components/MediaInfoCard';
@@ -77,20 +79,31 @@ export default function SeriesPage() {
     }
   };
 
-  const handleAlignSeries = async (title: string) => {
-    if (!window.confirm(t('page.series.alignAllConfirm', { title }))) {
-      return;
-    }
+  // 全剧对齐确认弹窗状态：force 标记是否为系统繁忙后的强制执行确认
+  const [alignConfirm, setAlignConfirm] = useState<{ title: string; force: boolean } | null>(null);
+
+  const triggerAlignSeries = async (title: string, force: boolean) => {
     setAligningSeriesOptimistic(title, true);
     const timeoutId = setTimeout(() => setAligningSeriesOptimistic(title, false), 3000);
     try {
-      await alignSeriesSubtitles(title);
+      await alignSeriesSubtitles(title, force);
     } catch (err: unknown) {
       clearTimeout(timeoutId);
       setAligningSeriesOptimistic(title, false);
+      // 系统繁忙（503 资源守卫）时展示原因并提供强制执行入口
+      if (!force && axios.isAxiosError(err) && err.response?.status === 503) {
+        const detail = (err.response.data as { detail?: string } | undefined)?.detail;
+        showToast(detail || err.message, 'error');
+        setAlignConfirm({ title, force: true });
+        return;
+      }
       const message = err instanceof Error ? err.message : String(err);
       showToast(t('mediaConfig.triggerFailed') + ': ' + message, 'error');
     }
+  };
+
+  const handleAlignSeries = (title: string) => {
+    setAlignConfirm({ title, force: false });
   };
 
   return (
@@ -263,6 +276,25 @@ export default function SeriesPage() {
           </section>
         </>
       )}
+
+      <ConfirmDialog
+        isOpen={alignConfirm !== null}
+        message={
+          alignConfirm
+            ? t(alignConfirm.force ? 'page.series.alignAllForceConfirm' : 'page.series.alignAllConfirm', {
+                title: alignConfirm.title,
+              })
+            : ''
+        }
+        onCancel={() => setAlignConfirm(null)}
+        onConfirm={() => {
+          const pending = alignConfirm;
+          setAlignConfirm(null);
+          if (pending) {
+            void triggerAlignSeries(pending.title, pending.force);
+          }
+        }}
+      />
     </div>
   );
 }

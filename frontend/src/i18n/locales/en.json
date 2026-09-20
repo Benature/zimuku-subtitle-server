@@ -38,6 +38,7 @@
       "alignAllSubtitles": "Align All Subtitles",
       "aligningSubtitles": "Aligning...",
       "alignAllConfirm": "Align subtitles with audio track for every episode of \"{{title}}\" (originals are backed up as .orig, this may take a while). Continue?",
+      "alignAllForceConfirm": "The system is busy and the alignment request for \"{{title}}\" was rejected by the server. Force-run it anyway? (The process runs at low priority and won't starve other tasks.)",
       "noVideos": "No video files for this season",
       "episodeFile": "Episode & File Name",
       "statusAction": "Status & Actions",

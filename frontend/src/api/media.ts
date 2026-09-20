@@ -64,8 +64,8 @@ export async function matchTVSeason(title: string, season: number): Promise<void
   );
 }
 
-export async function alignSeriesSubtitles(title: string): Promise<void> {
-  return postData(API_ENDPOINTS.MEDIA_SERIES_ALIGN_SUBTITLES, { title });
+export async function alignSeriesSubtitles(title: string, force = false): Promise<void> {
+  return postData(API_ENDPOINTS.MEDIA_SERIES_ALIGN_SUBTITLES, { title, force });
 }
 
 export async function getTaskStatus(): Promise<TaskStatus> {

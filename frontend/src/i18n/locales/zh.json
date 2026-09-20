@@ -38,6 +38,7 @@
       "alignAllSubtitles": "全剧音轨对齐",
       "aligningSubtitles": "音轨对齐中...",
       "alignAllConfirm": "将对「{{title}}」全部剧集的已有字幕逐集执行音轨对齐（自动备份 .orig 原字幕，耗时较长）。是否继续？",
+      "alignAllForceConfirm": "系统当前繁忙，对「{{title}}」的音轨对齐请求已被服务器拒绝。是否强制执行？（对齐进程以低优先级运行，不会抢占其他任务资源）",
       "noVideos": "本季暂无视频文件",
       "episodeFile": "集数与文件名称",
       "statusAction": "状态与操作",
