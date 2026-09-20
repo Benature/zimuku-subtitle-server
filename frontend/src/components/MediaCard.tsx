@@ -56,13 +56,30 @@ export function MediaCard({ item, selected, onSelect }: MediaCardProps): React.J
 
       {statusText && (
         <span
-          className={`absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold tracking-widest uppercase border backdrop-blur-md ${
+          className={`absolute top-2 right-2 flex items-center px-2 py-0.5 rounded text-[10px] leading-none font-bold tracking-widest uppercase border backdrop-blur-md ${
             isMatched
               ? 'bg-primary/80 text-on-primary border-primary/40'
               : 'bg-error-dim/80 text-on-surface border-error-dim/40'
           }`}
         >
           {statusText}
+        </span>
+      )}
+
+      {(item.alignmentStatus === 'aligned' || item.alignmentStatus === 'misaligned') && (
+        <span
+          className={`absolute top-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded text-[10px] leading-none font-bold tracking-widest uppercase border backdrop-blur-md ${
+            item.alignmentStatus === 'aligned'
+              ? 'bg-tertiary/80 text-on-surface border-tertiary/40'
+              : 'bg-error/80 text-on-primary border-error/40'
+          }`}
+        >
+          <span className="material-symbols-outlined text-[10px] leading-none">
+            {item.alignmentStatus === 'aligned' ? 'sync' : 'sync_problem'}
+          </span>
+          {item.alignmentStatus === 'aligned'
+            ? t('subtitles.alignment.aligned')
+            : t('subtitles.alignment.misaligned')}
         </span>
       )}
 
@@ -73,7 +90,26 @@ export function MediaCard({ item, selected, onSelect }: MediaCardProps): React.J
         >
           {item.displayTitle}
         </h3>
-        <p className="text-xs font-label text-on-surface-variant">{item.year || t('year.unknown')}</p>
+        <div className="flex items-center gap-2 min-w-0">
+          <p className="text-xs font-label text-on-surface-variant shrink-0">{item.year || t('year.unknown')}</p>
+          {item.languages && item.languages.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1 min-w-0">
+              {item.languages.slice(0, 2).map(language => (
+                <span
+                  key={language}
+                  className="px-1.5 py-0.5 rounded bg-surface-container-highest border border-outline-variant/20 text-[9px] font-bold text-primary-fixed tracking-wider whitespace-nowrap"
+                >
+                  {language}
+                </span>
+              ))}
+              {item.languages.length > 2 && (
+                <span className="text-[9px] font-bold text-on-surface-variant">
+                  +{item.languages.length - 2}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

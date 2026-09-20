@@ -98,6 +98,14 @@ export interface MediaSelection {
 }
 
 // Sidebar Types
+export type AlignmentStatus = 'unknown' | 'aligned' | 'misaligned';
+
+// 单个媒体文件的字幕汇总（/media/subtitle-summary 返回值）
+export interface SubtitleSummaryEntry {
+  alignment_status: AlignmentStatus;
+  languages: string[];
+}
+
 export interface SidebarItem {
   id: string;
   displayTitle: string;
@@ -106,6 +114,8 @@ export interface SidebarItem {
   hasSubCount: number;
   poster?: string | null;
   createdAt?: string;
+  alignmentStatus?: AlignmentStatus | null;
+  languages?: string[];
 }
 
 export type SortOption = 'name' | 'year' | 'created' | 'status';
@@ -127,7 +137,7 @@ export interface ExistingSubtitle {
   encoding: string;
   has_backup: boolean;
   backup_filename?: string | null;
-  alignment_status: 'unknown' | 'aligned' | 'misaligned';
+  alignment_status: AlignmentStatus;
   alignment_max_shift_ms?: number | null;
   alignment_mean_shift_ms?: number | null;
   alignment_checked_at?: string | null;

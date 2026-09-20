@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSidebarItem,
   getCurrentSeasonFiles,
+  getGroupSubtitleSummary,
   getNextSelectedSeason,
   getNextSelectedTitle,
   getSelectionFromUrl,
@@ -87,6 +88,45 @@ describe('mediaBrowser selectors', () => {
     ];
 
     expect(orderSidebarEntriesByDisplayYear(entries, 'desc').map(entry => entry.item.id)).toEqual(['A', 'B']);
+  });
+
+  it('对齐状态只统计有字幕的文件，取最差状态', () => {
+    // seriesGroup 中 id=11 有字幕，id=12 无字幕
+    expect(
+      getGroupSubtitleSummary(seriesGroup, { '11': { alignment_status: 'aligned', languages: [] } }).alignmentStatus
+    ).toBe('aligned');
+    expect(
+      getGroupSubtitleSummary(seriesGroup, {
+        '11': { alignment_status: 'misaligned', languages: [] },
+        '12': { alignment_status: 'aligned', languages: [] },
+      }).alignmentStatus
+    ).toBe('misaligned');
+    // 无字幕文件缺失记录不影响聚合
+    expect(getGroupSubtitleSummary(seriesGroup, {}).alignmentStatus).toBe('unknown');
+    expect(getGroupSubtitleSummary(seriesGroup, undefined).alignmentStatus).toBe('unknown');
+  });
+
+  it('字幕语言取所有文件语言的并集并去重', () => {
+    const summary = getGroupSubtitleSummary(seriesGroup, {
+      '11': { alignment_status: 'aligned', languages: ['简英双语', '英语'] },
+    });
+
+    expect(summary.languages).toEqual(['简英双语', '英语']);
+  });
+
+  it('没有字幕文件的作品不展示对齐与语言标签', () => {
+    const noSubGroup: TvGroup = {
+      ...seriesGroup,
+      seasons: {
+        1: seriesGroup.seasons[2].map(file => ({ ...file, id: 21 })),
+      },
+    };
+
+    const summary = getGroupSubtitleSummary(noSubGroup, {
+      '21': { alignment_status: 'aligned', languages: ['英语'] },
+    });
+    expect(summary.alignmentStatus).toBeNull();
+    expect(summary.languages).toEqual([]);
   });
 
   it('能解析 URL 选中项并回退默认选中', () => {

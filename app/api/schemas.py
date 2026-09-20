@@ -107,6 +107,13 @@ class MediaListResponse(BaseModel):
     items: list[MediaSummary]
 
 
+class SubtitleSummaryResponse(BaseModel):
+    """单个媒体文件的字幕汇总（卡片墙展示用）。"""
+
+    alignment_status: str = "unknown"
+    languages: list[str] = []
+
+
 class ExistingSubtitleResponse(BaseModel):
     filename: str
     file_path: str

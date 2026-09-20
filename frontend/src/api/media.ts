@@ -7,6 +7,7 @@ import type {
   MediaPath,
   ScannedFile,
   SubtitleAlignResponse,
+  SubtitleSummaryEntry,
   TaskStatus,
 } from '../types/api';
 import { getData, postData, deleteData } from './shared';
@@ -65,6 +66,14 @@ export async function fetchExistingSubtitles(fileId: number): Promise<ExistingSu
 
 export async function fetchAlignerStatus(): Promise<AlignerStatus> {
   return getData(API_ENDPOINTS.MEDIA_ALIGNER_STATUS);
+}
+
+export async function fetchMediaSubtitleSummary(
+  mediaType: 'movie' | 'tv',
+): Promise<Record<string, SubtitleSummaryEntry>> {
+  return getData(API_ENDPOINTS.MEDIA_SUBTITLE_SUMMARY, {
+    params: { media_type: mediaType },
+  });
 }
 
 export async function alignMediaSubtitle(

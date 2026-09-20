@@ -14,6 +14,7 @@ export const API_ENDPOINTS = {
   MEDIA_ALIGN_SUBTITLE: (fileId: number) => `/media/files/${fileId}/align-subtitle`,
   MEDIA_RESTORE_SUBTITLE: (fileId: number) => `/media/files/${fileId}/restore-subtitle`,
   MEDIA_ALIGNER_STATUS: '/media/aligner/status',
+  MEDIA_SUBTITLE_SUMMARY: '/media/subtitle-summary',
 
   // Tasks
   TASKS: '/tasks/',

@@ -9,7 +9,7 @@ from ..db.session import get_session
 from ..services.media_service import MediaService, global_task_status
 from ..services.metadata_service import MetadataService
 from ..services.subtitle_align_service import SubtitleAlignService
-from ..services.subtitle_inspection_service import SubtitleInspectionService
+from ..services.subtitle_inspection_service import SubtitleInspectionService, get_subtitle_summary
 from ..services.subtitle_trash_service import SubtitleTrashService
 from ..services.task_service import TaskService
 from .errors import raise_for_service_error
@@ -27,6 +27,7 @@ from .schemas import (
     SubtitleAlignResponse,
     SubtitleContentResponse,
     SubtitleRestoreRequest,
+    SubtitleSummaryResponse,
     SubtitleTrashItem,
     SubtitleTrashListResponse,
     SubtitleTrashPurgeRequest,
@@ -110,6 +111,16 @@ async def list_scanned_files(
 ) -> List[ScannedFile]:
     """获取已扫描的媒体文件列表"""
     return MediaService.list_files_paginated(session, path_type, offset, limit)
+
+
+@router.get("/subtitle-summary", response_model=dict[int, SubtitleSummaryResponse])
+async def get_media_subtitle_summary(
+    media_type: Literal["movie", "tv"] = Query(default="tv"),
+    session: Session = Depends(get_session),
+) -> dict[int, SubtitleSummaryResponse]:
+    """按媒体文件汇总字幕信息（对齐状态 + 语言列表，{file_id: summary}），供卡片墙展示。"""
+    summary = get_subtitle_summary(session, media_type)
+    return {file_id: SubtitleSummaryResponse(**info.to_dict()) for file_id, info in summary.items()}
 
 
 @router.get("/library", response_model=MediaListResponse)

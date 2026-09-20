@@ -9,7 +9,7 @@ import {
 } from '../api';
 import { useMediaGrouping, type MovieGroup, type TvGroup } from './useMediaGrouping';
 import { useMediaPolling } from './useMediaPolling';
-import { useTriggerMediaMatchMutation } from './queries';
+import { useMediaSubtitleSummaryQuery, useTriggerMediaMatchMutation } from './queries';
 import { queryKeys } from '../lib/queryKeys';
 import { useUIStore } from '../stores/useUIStore';
 import type { SidebarItem } from '../types/api';
@@ -18,6 +18,7 @@ import {
   findGroupByTitle,
   getCurrentSeasonFiles,
   getDefaultSortOrder,
+  getGroupSubtitleSummary,
   getNextSelectedSeason,
   getNextSelectedTitle,
   getSelectionFromUrl,
@@ -195,9 +196,19 @@ export function useMediaBrowserController(
     [orderedGroupedItems, type]
   );
 
+  const { data: subtitleSummary } = useMediaSubtitleSummaryQuery(type);
+
   const sidebarItems = useMemo(
-    () => orderedEntries.map(entry => entry.item),
-    [orderedEntries]
+    () =>
+      orderedEntries.map(entry => {
+        const summary = getGroupSubtitleSummary(entry.group, subtitleSummary);
+        return {
+          ...entry.item,
+          alignmentStatus: summary.alignmentStatus,
+          languages: summary.languages,
+        };
+      }),
+    [orderedEntries, subtitleSummary]
   );
 
   useEffect(() => {

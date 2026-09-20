@@ -1,4 +1,4 @@
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -6,6 +6,7 @@ from typing import Any, Optional
 from sqlmodel import Session, select
 
 from ..core.subtitle_detector import LanguageAnalysisResult, SubtitleDetector
+from ..core.subtitle_languages import SUBTITLE_LANGUAGE_BY_CODE
 from ..core.utils import SUBTITLE_EXTENSIONS
 from ..db.models import ScannedFile, SubtitleAlignmentState
 from ..db.session import session_scope
@@ -46,14 +47,8 @@ def compute_file_signature(sub_path: Path) -> tuple[int, int]:
     return stat.st_size, stat.st_mtime_ns
 
 
-def resolve_alignment_state(session: Session, sub_path: Path) -> AlignmentStateInfo:
-    """读取字幕的对齐状态；文件签名与记录不匹配时回落为 unknown。"""
-    record = session.exec(
-        select(SubtitleAlignmentState).where(SubtitleAlignmentState.subtitle_path == str(sub_path))
-    ).first()
-    if record is None:
-        return AlignmentStateInfo()
-
+def _resolve_alignment_from_record(record: SubtitleAlignmentState, sub_path: Path) -> AlignmentStateInfo:
+    """基于已有记录解析对齐状态；文件签名与记录不匹配时回落为 unknown。"""
     try:
         size_bytes, mtime_ns = compute_file_signature(sub_path)
     except OSError:
@@ -68,6 +63,89 @@ def resolve_alignment_state(session: Session, sub_path: Path) -> AlignmentStateI
         mean_shift_ms=record.mean_shift_ms,
         checked_at=record.checked_at.isoformat(),
     )
+
+
+def resolve_alignment_state(session: Session, sub_path: Path) -> AlignmentStateInfo:
+    """读取字幕的对齐状态；文件签名与记录不匹配时回落为 unknown。"""
+    record = session.exec(
+        select(SubtitleAlignmentState).where(SubtitleAlignmentState.subtitle_path == str(sub_path))
+    ).first()
+    if record is None:
+        return AlignmentStateInfo()
+
+    return _resolve_alignment_from_record(record, sub_path)
+
+
+# 单文件多字幕、单作品多文件聚合时的状态优先级（数值越大越差）
+_ALIGNMENT_SEVERITY = {
+    ALIGNMENT_STATUS_ALIGNED: 0,
+    ALIGNMENT_STATUS_UNKNOWN: 1,
+    ALIGNMENT_STATUS_MISALIGNED: 2,
+}
+
+
+@dataclass(frozen=True)
+class SubtitleSummaryInfo:
+    """单个媒体文件的字幕汇总视图（对齐状态 + 字幕语言列表），供卡片墙展示。"""
+
+    alignment_status: str = ALIGNMENT_STATUS_UNKNOWN
+    languages: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _detect_subtitle_display_language(sub_path: Path) -> Optional[str]:
+    """检测字幕语言的展示名称：优先文件名语言标签，失败时回退到内容分析。"""
+    hint = SubtitleDetector.infer_language_from_filename(sub_path.name)
+    if hint:
+        lang_def = SUBTITLE_LANGUAGE_BY_CODE.get(hint)
+        return lang_def.display_name if lang_def else hint
+
+    try:
+        analysis = SubtitleDetector.analyze_file(sub_path)
+    except Exception:
+        return None
+
+    name = analysis.detected_language_name
+    return name if name and name != "未知" else None
+
+
+def get_subtitle_summary(session: Session, media_type: str) -> dict[int, SubtitleSummaryInfo]:
+    """按媒体文件汇总字幕信息（对齐状态 + 语言列表），供卡片墙展示。
+
+    仅统计 has_subtitle 的文件；单文件存在多个字幕时对齐状态取最差
+    （misaligned > unknown > aligned），语言取去重后的并集。返回 {file_id: SubtitleSummaryInfo}。
+    """
+    record_map = {record.subtitle_path: record for record in session.exec(select(SubtitleAlignmentState)).all()}
+
+    files = session.exec(
+        select(ScannedFile).where(ScannedFile.type == media_type, ScannedFile.has_subtitle.is_(True))
+    ).all()
+
+    summary: dict[int, SubtitleSummaryInfo] = {}
+    for media in files:
+        if media.id is None:
+            continue
+
+        statuses = []
+        languages: list[str] = []
+        for sub_path in SubtitleInspectionService._find_related_subtitle_files(Path(media.file_path)):
+            record = record_map.get(str(sub_path))
+            alignment = _resolve_alignment_from_record(record, sub_path) if record is not None else AlignmentStateInfo()
+            statuses.append(alignment.status)
+
+            language = _detect_subtitle_display_language(sub_path)
+            if language and language not in languages:
+                languages.append(language)
+
+        if statuses:
+            summary[media.id] = SubtitleSummaryInfo(
+                alignment_status=max(statuses, key=lambda s: _ALIGNMENT_SEVERITY.get(s, 1)),
+                languages=languages,
+            )
+
+    return summary
 
 
 def record_alignment_result(

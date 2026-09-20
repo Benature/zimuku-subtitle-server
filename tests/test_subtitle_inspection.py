@@ -5,13 +5,15 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, delete
 
 from app.core.subtitle_detector import SubtitleDetector
-from app.db.models import MediaPath, ScannedFile
+from app.db.models import MediaPath, ScannedFile, SubtitleAlignmentState
 from app.db.session import create_db_and_tables, engine
 from app.main import app
 from app.mcp.server import handle_call_tool, handle_list_tools
 from app.services.subtitle_inspection_service import (
     SubtitleInspectionService,
     SubtitleInvalidRequestError,
+    get_subtitle_summary,
+    record_alignment_result,
 )
 
 client = TestClient(app)
@@ -23,11 +25,13 @@ def clean_records():
     with Session(engine) as session:
         session.exec(delete(ScannedFile))
         session.exec(delete(MediaPath))
+        session.exec(delete(SubtitleAlignmentState))
         session.commit()
     yield
     with Session(engine) as session:
         session.exec(delete(ScannedFile))
         session.exec(delete(MediaPath))
+        session.exec(delete(SubtitleAlignmentState))
         session.commit()
 
 
@@ -212,6 +216,140 @@ def test_subtitle_inspection_api(tmp_path: Path):
     # 3. 错误情况：文件不存在
     resp_404 = client.get("/media/files/999999/subtitles")
     assert resp_404.status_code == 404
+
+
+def test_subtitle_summary_aggregates_worst_status(tmp_path: Path):
+    """单文件多个字幕时，汇总状态取最差（misaligned > unknown > aligned），语言取并集。"""
+    file_id, _ = _setup_media_and_subtitles(tmp_path)
+
+    with Session(engine) as session:
+        subtitles = SubtitleInspectionService.get_existing_subtitles(session, file_id)
+    assert len(subtitles) == 2
+
+    record_alignment_result(subtitles[0].file_path, file_id, "aligned")
+    record_alignment_result(subtitles[1].file_path, file_id, "misaligned")
+
+    with Session(engine) as session:
+        summary = get_subtitle_summary(session, "tv")
+        assert summary[file_id].alignment_status == "misaligned"
+        # 双语 ASS（文件名带 zh-CN-en 标签）+ 英文 SRT（文件名带 en 标签）
+        assert set(summary[file_id].languages) == {"英语", "简英双语"}
+        # 其他类型不受影响
+        assert get_subtitle_summary(session, "movie") == {}
+
+
+def test_subtitle_summary_falls_back_to_unknown_on_signature_mismatch(tmp_path: Path):
+    """字幕文件被修改后，已记录的对齐状态应回落为 unknown。"""
+    file_id, _ = _setup_media_and_subtitles(tmp_path)
+
+    with Session(engine) as session:
+        subtitles = SubtitleInspectionService.get_existing_subtitles(session, file_id)
+
+    for sub in subtitles:
+        record_alignment_result(sub.file_path, file_id, "aligned")
+
+    with Session(engine) as session:
+        assert get_subtitle_summary(session, "tv")[file_id].alignment_status == "aligned"
+
+    # 修改其中一个字幕文件，签名失效应回落 unknown
+    target = Path(subtitles[0].file_path)
+    target.write_text(target.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+
+    with Session(engine) as session:
+        assert get_subtitle_summary(session, "tv")[file_id].alignment_status == "unknown"
+
+
+def test_subtitle_summary_language_falls_back_to_content_analysis(tmp_path: Path):
+    """文件名没有语言标签时，回退到内容分析检测语言。"""
+    media_dir = tmp_path / "library" / "tv" / "NoTag"
+    media_dir.mkdir(parents=True)
+    video_file = media_dir / "NoTag.S01E01.mkv"
+    video_file.write_bytes(b"fake video")
+    # 文件名无语言标签，内容为纯中文
+    sub = media_dir / "NoTag.S01E01.srt"
+    sub.write_text(
+        """1
+00:00:01,000 --> 00:00:03,000
+你好，今天天气不错。
+
+2
+00:00:04,000 --> 00:00:06,000
+是的，我们一起去散步吧。
+""",
+        encoding="utf-8",
+    )
+
+    with Session(engine) as session:
+        mp = MediaPath(path=str(tmp_path / "library" / "tv"), type="tv")
+        session.add(mp)
+        session.commit()
+        session.refresh(mp)
+
+        sf = ScannedFile(
+            path_id=mp.id,
+            type="tv",
+            file_path=str(video_file),
+            filename=video_file.name,
+            extracted_title="NoTag",
+            season=1,
+            episode=1,
+            has_subtitle=True,
+        )
+        session.add(sf)
+        session.commit()
+        session.refresh(sf)
+        assert sf.id is not None
+
+        summary = get_subtitle_summary(session, "tv")
+        assert summary[sf.id].languages == ["简体中文"]
+
+
+def test_subtitle_summary_skips_files_without_subtitle(tmp_path: Path):
+    """has_subtitle=False 的文件不参与汇总。"""
+    media_dir = tmp_path / "library" / "tv" / "NoSub"
+    media_dir.mkdir(parents=True)
+    video_file = media_dir / "NoSub.S01E01.mkv"
+    video_file.write_bytes(b"fake video")
+
+    with Session(engine) as session:
+        mp = MediaPath(path=str(tmp_path / "library" / "tv"), type="tv")
+        session.add(mp)
+        session.commit()
+        session.refresh(mp)
+
+        sf = ScannedFile(
+            path_id=mp.id,
+            type="tv",
+            file_path=str(video_file),
+            filename=video_file.name,
+            extracted_title="NoSub",
+            season=1,
+            episode=1,
+            has_subtitle=False,
+        )
+        session.add(sf)
+        session.commit()
+
+        assert get_subtitle_summary(session, "tv") == {}
+
+
+def test_subtitle_summary_api(tmp_path: Path):
+    file_id, _ = _setup_media_and_subtitles(tmp_path)
+
+    with Session(engine) as session:
+        subtitles = SubtitleInspectionService.get_existing_subtitles(session, file_id)
+    for sub in subtitles:
+        record_alignment_result(sub.file_path, file_id, "aligned")
+
+    resp = client.get("/media/subtitle-summary", params={"media_type": "tv"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data[str(file_id)]["alignment_status"] == "aligned"
+    assert set(data[str(file_id)]["languages"]) == {"英语", "简英双语"}
+
+    resp_movie = client.get("/media/subtitle-summary", params={"media_type": "movie"})
+    assert resp_movie.status_code == 200
+    assert resp_movie.json() == {}
 
 
 @pytest.mark.anyio

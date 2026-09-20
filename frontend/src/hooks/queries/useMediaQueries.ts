@@ -9,13 +9,14 @@ import {
   addMediaPath,
   deleteMediaPath,
   fetchMediaMetadata,
+  fetchMediaSubtitleSummary,
   getTaskStatus,
   listMediaPaths,
   listScannedFiles,
   triggerMediaMatch,
 } from '../../api';
 import { queryKeys } from '../../lib/queryKeys';
-import type { MediaPath, ScannedFile, TaskStatus } from '../../types/api';
+import type { MediaPath, ScannedFile, SubtitleSummaryEntry, TaskStatus } from '../../types/api';
 
 type MediaType = 'movie' | 'tv';
 type AddMediaPathVariables = { path: string; pathType: MediaType };
@@ -38,6 +39,8 @@ async function invalidateMediaMatchQueries(
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.media.taskStatus() }),
     queryClient.invalidateQueries({ queryKey: queryKeys.media.files(pathType) }),
+    // 前缀匹配，同时失效 movie/tv 两个字幕汇总缓存
+    queryClient.invalidateQueries({ queryKey: [...queryKeys.media.all, 'subtitle-summary'] }),
   ]);
 }
 
@@ -64,6 +67,16 @@ export function useMediaFilesQuery(pathType?: 'movie' | 'tv', options?: MediaFil
     queryKey: queryKeys.media.files(pathType),
     queryFn: () => listScannedFiles(pathType),
     ...options,
+  });
+}
+
+export function useMediaSubtitleSummaryQuery(mediaType: 'movie' | 'tv') {
+  return useQuery<Record<string, SubtitleSummaryEntry>, Error>({
+    queryKey: queryKeys.media.subtitleSummary(mediaType),
+    queryFn: () => fetchMediaSubtitleSummary(mediaType),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+    throwOnError: false,
   });
 }
 
