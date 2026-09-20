@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, startTransition } from 'react';
-import { useQueries } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState, startTransition } from 'react';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import {
   fetchMediaMetadata,
@@ -200,7 +200,21 @@ export function useMediaBrowserController(
     [orderedGroupedItems, type]
   );
 
-  const { data: subtitleSummary } = useMediaSubtitleSummaryQuery(type);
+  const isAnySeriesAligning = status.aligning_series.length > 0;
+  const { data: subtitleSummary } = useMediaSubtitleSummaryQuery(type, {
+    // 批量对齐进行中提高汇总刷新频率，让已完成集的对齐徽标及时更新。
+    refetchInterval: isAnySeriesAligning ? 10000 : false,
+  });
+
+  const queryClient = useQueryClient();
+  const wasAligningRef = useRef(false);
+  useEffect(() => {
+    // 批量对齐结束的瞬间补一次汇总刷新，避免停留在过期的对齐状态。
+    if (wasAligningRef.current && !isAnySeriesAligning) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.media.subtitleSummary(type) });
+    }
+    wasAligningRef.current = isAnySeriesAligning;
+  }, [isAnySeriesAligning, queryClient, type]);
 
   const sidebarItems = useMemo(
     () =>
@@ -210,9 +224,10 @@ export function useMediaBrowserController(
           ...entry.item,
           alignmentStatus: summary.alignmentStatus,
           languages: summary.languages,
+          isAligning: status.aligning_series.includes(entry.group.title),
         };
       }),
-    [orderedEntries, subtitleSummary]
+    [orderedEntries, subtitleSummary, status.aligning_series]
   );
 
   useEffect(() => {

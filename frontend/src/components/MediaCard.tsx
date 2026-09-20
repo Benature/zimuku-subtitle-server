@@ -17,6 +17,10 @@ export function MediaCard({ item, selected, onSelect }: MediaCardProps): React.J
       return '';
     }
 
+    if (item.allowNoSubtitle) {
+      return t('status.noSubtitleNeeded');
+    }
+
     if (isMatched) {
       return t('status.matched');
     }
@@ -57,29 +61,37 @@ export function MediaCard({ item, selected, onSelect }: MediaCardProps): React.J
       {statusText && (
         <span
           className={`absolute top-2 right-2 flex items-center px-2 py-0.5 rounded text-[10px] leading-none font-bold tracking-widest uppercase border backdrop-blur-md ${
-            isMatched
-              ? 'bg-primary/80 text-on-primary border-primary/40'
-              : 'bg-error-dim/80 text-on-surface border-error-dim/40'
+            item.allowNoSubtitle
+              ? 'bg-surface-container-highest/80 text-on-surface-variant border-outline-variant/40'
+              : isMatched
+                ? 'bg-primary/80 text-on-primary border-primary/40'
+                : 'bg-error-dim/80 text-on-surface border-error-dim/40'
           }`}
         >
           {statusText}
         </span>
       )}
 
-      {(item.alignmentStatus === 'aligned' || item.alignmentStatus === 'misaligned') && (
+      {(item.isAligning || item.alignmentStatus === 'aligned' || item.alignmentStatus === 'misaligned') && (
         <span
           className={`absolute top-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded text-[10px] leading-none font-bold tracking-widest uppercase border backdrop-blur-md ${
-            item.alignmentStatus === 'aligned'
-              ? 'bg-tertiary/80 text-on-surface border-tertiary/40'
-              : 'bg-error/80 text-on-primary border-error/40'
+            item.isAligning
+              ? 'bg-primary/80 text-on-primary border-primary/40'
+              : item.alignmentStatus === 'aligned'
+                ? 'bg-tertiary/80 text-on-surface border-tertiary/40'
+                : 'bg-error/80 text-on-primary border-error/40'
           }`}
         >
-          <span className="material-symbols-outlined text-[10px] leading-none">
-            {item.alignmentStatus === 'aligned' ? 'sync' : 'sync_problem'}
+          <span
+            className={`material-symbols-outlined text-[10px] leading-none ${item.isAligning ? 'animate-spin' : ''}`}
+          >
+            {item.isAligning ? 'sync' : item.alignmentStatus === 'aligned' ? 'sync' : 'sync_problem'}
           </span>
-          {item.alignmentStatus === 'aligned'
-            ? t('subtitles.alignment.aligned')
-            : t('subtitles.alignment.misaligned')}
+          {item.isAligning
+            ? t('status.aligning')
+            : item.alignmentStatus === 'aligned'
+              ? t('subtitles.alignment.aligned')
+              : t('subtitles.alignment.misaligned')}
         </span>
       )}
 

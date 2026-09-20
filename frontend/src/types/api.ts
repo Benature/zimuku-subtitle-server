@@ -120,6 +120,7 @@ export interface SidebarItem {
   alignmentStatus?: AlignmentStatus | null;
   languages?: string[];
   allowNoSubtitle?: boolean;
+  isAligning?: boolean;
 }
 
 export type SortOption = 'name' | 'year' | 'created' | 'status';

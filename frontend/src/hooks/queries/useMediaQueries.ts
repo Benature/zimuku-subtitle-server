@@ -70,13 +70,22 @@ export function useMediaFilesQuery(pathType?: 'movie' | 'tv', options?: MediaFil
   });
 }
 
-export function useMediaSubtitleSummaryQuery(mediaType: 'movie' | 'tv') {
+type MediaSubtitleSummaryQueryOptions = Omit<
+  UseQueryOptions<Record<string, SubtitleSummaryEntry>, Error>,
+  'queryKey' | 'queryFn'
+>;
+
+export function useMediaSubtitleSummaryQuery(
+  mediaType: 'movie' | 'tv',
+  options?: MediaSubtitleSummaryQueryOptions
+) {
   return useQuery<Record<string, SubtitleSummaryEntry>, Error>({
     queryKey: queryKeys.media.subtitleSummary(mediaType),
     queryFn: () => fetchMediaSubtitleSummary(mediaType),
     staleTime: 5 * 60 * 1000,
     retry: 1,
     throwOnError: false,
+    ...options,
   });
 }
 

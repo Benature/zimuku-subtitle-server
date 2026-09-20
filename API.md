@@ -17,6 +17,7 @@
 | POST | `/media/files/{id}/auto-match` | 单文件自动匹配 | path: `id` |
 | POST | `/media/works/allow-no-subtitle` | 按作品设置「允许无字幕」标记，标记作品在批量/季补全中跳过；新扫描文件自动继承同作品标记 | body: `media_type`, `title`, `allow` |
 | POST | `/media/tv/match-season` | 剧集季批量补全 | `title`, `season` |
+| POST | `/media/series/align-subtitles` | 剧集级批量字幕音轨对齐（后台顺序执行，自动备份 .orig，单条失败不中断；启动前检查系统负载，繁忙返回 503） | body/query: `title`, body: `force?` |
 | POST | `/media/match` | 触发全局扫描 | `path_type?` |
 | GET | `/media/task-status` | 获取当前任务状态 | - |
 | GET | `/media/files/{id}/subtitles` | 查询媒体文件已有字幕及实际语言分析（双语/单语判定与对白采样） | path: `id` |
