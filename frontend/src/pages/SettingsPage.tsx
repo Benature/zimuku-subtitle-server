@@ -159,6 +159,8 @@ export default function SettingsPage() {
     await saveSettingsGroup({
       feishu_webhook_url: formValues['feishu_webhook_url'] ?? feishuWebhook,
       feishu_webhook_secret: formValues['feishu_webhook_secret'] ?? feishuSecret,
+      feishu_app_id: formValues['feishu_app_id'] ?? feishuAppId,
+      feishu_app_secret: formValues['feishu_app_secret'] ?? feishuAppSecret,
     });
   };
 
@@ -503,6 +505,24 @@ export default function SettingsPage() {
                 className="w-full bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
               />
 
+              <input
+                type="text"
+                value={formValues['feishu_app_id'] ?? feishuAppId}
+                onChange={e => setFormValues(prev => ({ ...prev, feishu_app_id: e.target.value }))}
+                placeholder={t('page.settings.feishuAppIdPlaceholder')}
+                className="w-full bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
+              />
+
+              <input
+                type="password"
+                value={formValues['feishu_app_secret'] ?? feishuAppSecret}
+                onChange={e => setFormValues(prev => ({ ...prev, feishu_app_secret: e.target.value }))}
+                placeholder={t('page.settings.feishuAppSecretPlaceholder')}
+                className="w-full bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
+              />
+
+              <p className="text-xs text-on-surface-variant">{t('page.settings.feishuAppHint')}</p>
+
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleSaveFeishuSettings}
@@ -511,45 +531,11 @@ export default function SettingsPage() {
                 >
                   {t('page.settings.save')}
                 </button>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={formValues['feishu_app_id'] ?? feishuAppId}
-                  onChange={e => setFormValues(prev => ({ ...prev, feishu_app_id: e.target.value }))}
-                  placeholder={t('page.settings.feishuAppIdPlaceholder')}
-                  className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
-                />
                 <button
-                  onClick={() => handleSaveSetting('feishu_app_id')}
-                  className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
+                  onClick={handleFeishuTest}
+                  disabled={feishuTestMutation.isPending}
+                  className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
                 >
-                  {t('page.settings.save')}
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="password"
-                  value={formValues['feishu_app_secret'] ?? feishuAppSecret}
-                  onChange={e => setFormValues(prev => ({ ...prev, feishu_app_secret: e.target.value }))}
-                  placeholder={t('page.settings.feishuAppSecretPlaceholder')}
-                  className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
-                />
-                <button
-                  onClick={() => handleSaveSetting('feishu_app_secret')}
-                  className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
-                >
-                  {t('page.settings.save')}
-                </button>
-              </div>
-
-              <p className="text-xs text-on-surface-variant">{t('page.settings.feishuAppHint')}</p>
-
-              <button
-                onClick={handleFeishuTest}
-                disabled={feishuTestMutation.isPending}
-                className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
-              >
                   {feishuTestMutation.isPending ? t('page.settings.feishuTestSending') : t('page.settings.feishuTest')}
                 </button>
               </div>
