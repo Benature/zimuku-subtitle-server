@@ -50,9 +50,10 @@ export function getGroupSubtitleSummary(
   group: MovieGroup | TvGroup,
   summaryByFileId: Record<string, SubtitleSummaryEntry> | undefined
 ): GroupSubtitleSummary {
-  // 只统计有字幕的文件；没有字幕文件的作品不展示对齐/语言标签。
+  // 只统计有字幕且未标记「允许无字幕」的文件；已标记的作品不展示对齐/语言标签，
+  // 与后端缺字幕统计口径一致（media_service 将 allow_no_subtitle 文件排除在缺失之外）。
   const files = isMovieGroup(group) ? group.files : Object.values(group.seasons).flat();
-  const filesWithSubtitle = files.filter(file => file.has_subtitle);
+  const filesWithSubtitle = files.filter(file => file.has_subtitle && !file.allow_no_subtitle);
 
   if (filesWithSubtitle.length === 0) {
     return { alignmentStatus: null, languages: [] };

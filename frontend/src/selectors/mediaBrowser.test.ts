@@ -135,6 +135,21 @@ describe('mediaBrowser selectors', () => {
     expect(summary.languages).toEqual([]);
   });
 
+  it('「允许无字幕」的文件不参与对齐与语言标签聚合', () => {
+    const allowedGroup: TvGroup = {
+      ...seriesGroup,
+      seasons: {
+        1: seriesGroup.seasons[1].map(file => ({ ...file, allow_no_subtitle: true })),
+      },
+    };
+
+    const summary = getGroupSubtitleSummary(allowedGroup, {
+      '11': { alignment_status: 'misaligned', languages: ['简英双语'] },
+    });
+    expect(summary.alignmentStatus).toBeNull();
+    expect(summary.languages).toEqual([]);
+  });
+
   it('能解析 URL 选中项并回退默认选中', () => {
     expect(getSelectionFromUrl([seriesGroup], 'Series', '2')).toEqual({ title: 'Series', season: 2 });
     expect(getNextSelectedTitle([seriesGroup], null)).toBe('Series');
