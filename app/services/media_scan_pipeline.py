@@ -10,6 +10,7 @@ from sqlmodel import Session, col, select
 from ..core.metadata import find_nfo_file, parse_nfo
 from ..core.utils import check_has_subtitle, parse_media_filename
 from ..db.models import MediaPath, ScannedFile
+from .auto_match_workflow import normalize_media_title
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +62,22 @@ class MediaScanPipeline:
             self.session.add(media_path)
 
         self.cleanup_records_missing_from_discovery(discovered_files, existing_records, scanned_path_ids)
-        self.reconcile_records(discovered_files, existing_records)
+        flagged_work_keys = self.load_flagged_work_keys()
+        self.reconcile_records(discovered_files, existing_records, flagged_work_keys)
         self.session.commit()
+
+    @staticmethod
+    def build_work_key(media_type: str, title: Optional[str], filename: str) -> tuple[str, str]:
+        """作品级标记键：媒体类型 + 规范化标题（与去年份标题的匹配口径一致）。"""
+        return (media_type, normalize_media_title(title or filename))
+
+    def load_flagged_work_keys(self) -> Set[tuple[str, str]]:
+        """加载所有被标记「允许无字幕」的作品键，供新扫描文件继承标记。"""
+        statement = select(ScannedFile).where(col(ScannedFile.allow_no_subtitle).is_(True))
+        return {
+            self.build_work_key(record.type, record.extracted_title, record.filename)
+            for record in self.session.exec(statement).all()
+        }
 
     def cleanup_orphan_records(self) -> None:
         path_ids = [path_id for path_id in self.session.exec(select(MediaPath.id)).all() if path_id is not None]
@@ -209,11 +224,18 @@ class MediaScanPipeline:
         self,
         discovered_files: Sequence[DiscoveredMediaFile],
         existing_records: Dict[str, ScannedFile],
+        flagged_work_keys: Optional[Set[tuple[str, str]]] = None,
     ) -> None:
+        flagged_work_keys = flagged_work_keys or set()
         for discovered in discovered_files:
             existing_file = existing_records.get(discovered.file_path)
             if existing_file is None:
-                existing_file = self.create_scanned_file(discovered)
+                # 新文件继承同作品已有的「允许无字幕」标记，避免新增剧集/版本被重复补全
+                allow_no_subtitle = (
+                    self.build_work_key(discovered.media_type, discovered.extracted_title, discovered.filename)
+                    in flagged_work_keys
+                )
+                existing_file = self.create_scanned_file(discovered, allow_no_subtitle=allow_no_subtitle)
             else:
                 self.apply_discovered_fields(existing_file, discovered)
 
@@ -241,7 +263,7 @@ class MediaScanPipeline:
             logger.info(f"清理了 {len(removed_files)} 条本次扫描未发现的旧文件记录")
 
     @staticmethod
-    def create_scanned_file(discovered: DiscoveredMediaFile) -> ScannedFile:
+    def create_scanned_file(discovered: DiscoveredMediaFile, allow_no_subtitle: bool = False) -> ScannedFile:
         return ScannedFile(
             path_id=discovered.path_id,
             type=discovered.media_type,
@@ -255,6 +277,7 @@ class MediaScanPipeline:
             season=discovered.season,
             episode=discovered.episode,
             has_subtitle=discovered.has_subtitle,
+            allow_no_subtitle=allow_no_subtitle,
             series_root_path=discovered.series_root_path,
         )
 

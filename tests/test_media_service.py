@@ -255,3 +255,91 @@ def test_list_media_groups_movies_and_paginates(session):
     assert total == 1
     assert movies[0]["media_key"] == "movie:Arrival:2016"
     assert movies[0]["file_count"] == 2
+
+
+def test_set_work_allow_no_subtitle_updates_all_files_of_work(session):
+    tv_path = MediaService.add_path(session, "/tv", "tv")
+    session.add_all(
+        [
+            ScannedFile(
+                path_id=tv_path.id,
+                type="tv",
+                file_path="/tv/Show/S01E01.mkv",
+                filename="Show.S01E01.mkv",
+                extracted_title="Show (2024)",
+                season=1,
+                episode=1,
+            ),
+            ScannedFile(
+                path_id=tv_path.id,
+                type="tv",
+                file_path="/tv/Show/S01E02.mkv",
+                filename="Show.S01E02.mkv",
+                extracted_title="Show",
+                season=1,
+                episode=2,
+            ),
+            ScannedFile(
+                path_id=tv_path.id,
+                type="movie",
+                file_path="/tv/Show.mkv",
+                filename="Show.mkv",
+                extracted_title="Show",
+            ),
+        ]
+    )
+    session.commit()
+
+    # 与 _load_series_file_ids 口径一致：传入带年份标题可同时命中 "Show" 与 "Show (2024)"
+    updated = MediaService.set_work_allow_no_subtitle(session, media_type="tv", title="Show (2024)", allow=True)
+
+    assert updated == 2
+    files = session.exec(select(ScannedFile).where(ScannedFile.type == "tv")).all()
+    assert all(file_record.allow_no_subtitle for file_record in files)
+    movie_file = session.exec(select(ScannedFile).where(ScannedFile.type == "movie")).one()
+    assert movie_file.allow_no_subtitle is False
+
+    updated = MediaService.set_work_allow_no_subtitle(session, media_type="tv", title="Show (2024)", allow=False)
+    assert updated == 2
+    files = session.exec(select(ScannedFile).where(ScannedFile.type == "tv")).all()
+    assert not any(file_record.allow_no_subtitle for file_record in files)
+
+
+def test_set_work_allow_no_subtitle_raises_for_unknown_title(session):
+    with pytest.raises(LookupError):
+        MediaService.set_work_allow_no_subtitle(session, media_type="movie", title="Ghost", allow=True)
+
+
+def test_list_media_groups_reflects_allow_no_subtitle(session):
+    movie_path = MediaService.add_path(session, "/movies", "movie")
+    session.add_all(
+        [
+            ScannedFile(
+                path_id=movie_path.id,
+                type="movie",
+                file_path="/movies/Silent/Silent.2024.mkv",
+                filename="Silent.2024.mkv",
+                extracted_title="Silent",
+                year="2024",
+                allow_no_subtitle=True,
+            ),
+            ScannedFile(
+                path_id=movie_path.id,
+                type="movie",
+                file_path="/movies/Noisy/Noisy.2024.mkv",
+                filename="Noisy.2024.mkv",
+                extracted_title="Noisy",
+                year="2024",
+            ),
+        ]
+    )
+    session.commit()
+
+    movies, total = MediaService.list_media_paginated(session, level="movie")
+
+    assert total == 2
+    by_title = {item["title"]: item for item in movies}
+    assert by_title["Silent"]["allow_no_subtitle"] is True
+    assert by_title["Silent"]["missing_subtitle_file_count"] == 0
+    assert by_title["Noisy"]["allow_no_subtitle"] is False
+    assert by_title["Noisy"]["missing_subtitle_file_count"] == 1

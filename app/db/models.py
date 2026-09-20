@@ -73,6 +73,8 @@ class ScannedFile(SQLModel, table=True):
     season: Optional[int] = None
     episode: Optional[int] = None
     has_subtitle: bool = Field(default=False)
+    # 标记所属作品接受无字幕，批量/季补全时跳过，避免重复搜索资源
+    allow_no_subtitle: bool = Field(default=False)
     series_root_path: Optional[str] = Field(default=None)  # TV series root directory
     created_at: datetime = Field(default_factory=datetime.now)
 

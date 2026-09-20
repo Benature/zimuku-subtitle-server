@@ -37,6 +37,7 @@ from .schemas import (
     SubtitleTrashRestoreRequest,
     SubtitleTrashRestoreResponse,
     TaskTriggerResponse,
+    WorkAllowNoSubtitleRequest,
 )
 
 router = APIRouter(prefix="/media", tags=["Media"])
@@ -149,6 +150,25 @@ async def list_media_library(
     except ValueError as exc:
         raise_for_service_error(exc)
     return MediaListResponse(total=total, offset=offset, limit=limit, items=items)
+
+
+@router.post("/works/allow-no-subtitle", response_model=ActionResponse)
+async def set_work_allow_no_subtitle(
+    payload: WorkAllowNoSubtitleRequest,
+    session: Session = Depends(get_session),
+) -> ActionResponse:
+    """按作品（电影/剧集）设置「允许无字幕」标记，标记作品在批量/季补全中跳过"""
+    try:
+        updated = MediaService.set_work_allow_no_subtitle(
+            session,
+            media_type=payload.media_type,
+            title=payload.title,
+            allow=payload.allow,
+        )
+    except Exception as exc:
+        raise_for_service_error(exc)
+    state = "允许无字幕" if payload.allow else "需要字幕"
+    return ActionResponse(message=f"作品 '{payload.title}' 已标记为{state}（更新 {updated} 个文件）")
 
 
 @router.post("/files/{file_id}/auto-match", response_model=TaskTriggerResponse)

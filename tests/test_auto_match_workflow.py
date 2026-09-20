@@ -280,3 +280,91 @@ async def test_library_match_max_works_zero_processes_all():
     assert sorted(stats.titles) == ["Movie B", "Show A"]
     assert stats.total == 2
     assert stats.remaining_works == 0
+
+
+@pytest.mark.anyio
+async def test_library_match_skips_works_allowing_no_subtitle():
+    with Session(engine) as session:
+        _add_pending(session, "Show A", "ShowA.S01E01.mkv")
+        flagged = ScannedFile(
+            path_id=1,
+            type="movie",
+            file_path="/library/Silent.2024.mkv",
+            filename="Silent.2024.mkv",
+            extracted_title="Silent Movie",
+            has_subtitle=False,
+            allow_no_subtitle=True,
+        )
+        session.add(flagged)
+        session.commit()
+        session.refresh(flagged)
+        flagged_id = flagged.id
+
+    matched_ids = []
+
+    async def fake_auto_match(file_id: int):
+        matched_ids.append(file_id)
+        return True
+
+    async def fake_sleep(seconds: float):
+        return None
+
+    service = LibraryMatchWorkflow(
+        session_factory=session_scope,
+        auto_match_runner=fake_auto_match,
+        sleep_func=fake_sleep,
+    )
+
+    stats = await service.run()
+
+    assert stats.titles == ["Show A"]
+    assert stats.total == 1
+    assert flagged_id not in matched_ids
+
+
+@pytest.mark.anyio
+async def test_season_match_skips_files_allowing_no_subtitle():
+    with Session(engine) as session:
+        pending = ScannedFile(
+            path_id=1,
+            type="tv",
+            file_path="/library/Show.S01E01.mkv",
+            filename="Show.S01E01.mkv",
+            extracted_title="Show",
+            season=1,
+            episode=1,
+            has_subtitle=False,
+        )
+        flagged = ScannedFile(
+            path_id=1,
+            type="tv",
+            file_path="/library/Show.S01E02.mkv",
+            filename="Show.S01E02.mkv",
+            extracted_title="Show",
+            season=1,
+            episode=2,
+            has_subtitle=False,
+            allow_no_subtitle=True,
+        )
+        session.add_all([pending, flagged])
+        session.commit()
+        session.refresh(pending)
+
+    calls = []
+
+    async def fake_auto_match(file_id: int):
+        calls.append(file_id)
+        return True
+
+    async def fake_sleep(seconds: float):
+        return None
+
+    service = SeasonMatchWorkflow(
+        session_factory=session_scope,
+        auto_match_runner=fake_auto_match,
+        sleep_func=fake_sleep,
+    )
+
+    await service.run_for_season("Show", 1)
+
+    assert calls == [pending.id]

@@ -258,6 +258,7 @@ class SeasonMatchWorkflow:
                 ScannedFile.type == "tv",
                 ScannedFile.season == season,
                 col(ScannedFile.has_subtitle).is_(False),
+                col(ScannedFile.allow_no_subtitle).is_(False),
             )
             files = session.exec(statement).all()
             return [file_record.id for file_record in files if file_record.id is not None]
@@ -301,14 +302,20 @@ class LibraryMatchWorkflow:
 
     def load_pending_files(self) -> List[tuple[int, str]]:
         with self._session_factory() as session:
-            statement = select(ScannedFile).where(col(ScannedFile.has_subtitle).is_(False))
+            statement = select(ScannedFile).where(
+                col(ScannedFile.has_subtitle).is_(False),
+                col(ScannedFile.allow_no_subtitle).is_(False),
+            )
             files = session.exec(statement).all()
             return [(file_record.id, file_record.filename) for file_record in files if file_record.id is not None]
 
     def load_pending_groups(self) -> dict[str, List[tuple[int, str]]]:
-        """按作品（规范化标题）分组缺失字幕的文件。"""
+        """按作品（规范化标题）分组缺失字幕的文件（跳过允许无字幕的作品）。"""
         with self._session_factory() as session:
-            statement = select(ScannedFile).where(col(ScannedFile.has_subtitle).is_(False))
+            statement = select(ScannedFile).where(
+                col(ScannedFile.has_subtitle).is_(False),
+                col(ScannedFile.allow_no_subtitle).is_(False),
+            )
             files = session.exec(statement).all()
 
         groups: dict[str, List[tuple[int, str]]] = {}

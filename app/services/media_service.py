@@ -6,7 +6,7 @@ from sqlmodel import Session, col, or_, select
 
 from ..db.models import MediaPath, ScannedFile
 from ..db.session import session_scope
-from .auto_match_workflow import AutoMatchWorkflow, SeasonMatchWorkflow
+from .auto_match_workflow import AutoMatchWorkflow, SeasonMatchWorkflow, normalize_media_title
 from .errors import ConflictError
 from .media_scan_pipeline import MediaScanPipeline
 
@@ -162,17 +162,24 @@ class MediaService:
                 item["path_ids"] = {file_record.path_id}
                 item["file_count"] = 1
                 item["subtitle_file_count"] = int(file_record.has_subtitle)
+                item["allow_no_subtitle"] = bool(file_record.allow_no_subtitle)
+                item["no_subtitle_allowed_file_count"] = int(file_record.allow_no_subtitle)
                 grouped[group_key] = item
                 continue
 
             existing["path_ids"].add(file_record.path_id)
             existing["file_count"] += 1
             existing["subtitle_file_count"] += int(file_record.has_subtitle)
+            existing["allow_no_subtitle"] = existing["allow_no_subtitle"] and bool(file_record.allow_no_subtitle)
+            existing["no_subtitle_allowed_file_count"] += int(file_record.allow_no_subtitle)
 
         items = []
         for item in grouped.values():
             item["path_ids"] = sorted(item["path_ids"])
-            item["missing_subtitle_file_count"] = item["file_count"] - item["subtitle_file_count"]
+            # 允许无字幕的文件不计入缺失：它们是有意不配字幕的
+            item["missing_subtitle_file_count"] = (
+                item["file_count"] - item["subtitle_file_count"] - item["no_subtitle_allowed_file_count"]
+            )
             items.append(item)
 
         items.sort(key=lambda item: (item["title"].casefold(), item["season"] or 0, item["episode"] or 0))
@@ -248,6 +255,30 @@ class MediaService:
     @staticmethod
     def get_file(session: Session, file_id: int) -> Optional[ScannedFile]:
         return session.get(ScannedFile, file_id)
+
+    @staticmethod
+    def set_work_allow_no_subtitle(session: Session, media_type: str, title: str, allow: bool) -> int:
+        """按作品（电影/剧集，含去年份规范化标题匹配）设置「允许无字幕」标记。
+
+        标记作用于作品下的全部文件；批量/季补全跳过已标记作品。返回更新的文件数。
+        """
+        query_title = normalize_media_title(title)
+        statement = select(ScannedFile).where(
+            or_(
+                ScannedFile.extracted_title == query_title,
+                ScannedFile.extracted_title == title,
+            ),
+            ScannedFile.type == media_type,
+        )
+        files = session.exec(statement).all()
+        if not files:
+            raise LookupError(f"未找到作品: {title}")
+
+        for file_record in files:
+            file_record.allow_no_subtitle = allow
+            session.add(file_record)
+        session.commit()
+        return len(files)
 
     @staticmethod
     async def run_media_scan_and_match(path_type: Optional[str] = None) -> None:

@@ -42,6 +42,10 @@ NFO_SEARCH_COLUMNS = {
     "nfo_aliases": "VARCHAR",
 }
 
+SCANNED_FILE_FLAG_COLUMNS = {
+    "allow_no_subtitle": "BOOLEAN NOT NULL DEFAULT 0",
+}
+
 SUBTITLE_TASK_MIGRATION_COLUMNS = {
     "file_id": "INTEGER",
 }
@@ -64,7 +68,7 @@ def _migrate_scanned_file_metadata_columns():
 
     with engine.begin() as connection:
         existing_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(scannedfile)")}
-        for name, column_type in NFO_SEARCH_COLUMNS.items():
+        for name, column_type in {**NFO_SEARCH_COLUMNS, **SCANNED_FILE_FLAG_COLUMNS}.items():
             if name not in existing_columns:
                 connection.exec_driver_sql(f"ALTER TABLE scannedfile ADD COLUMN {name} {column_type}")
 

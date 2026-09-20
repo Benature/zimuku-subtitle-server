@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -45,6 +45,12 @@ class FileSubtitleDownloadRequest(BaseModel):
 class SeasonMatchRequest(BaseModel):
     title: str = Field(min_length=1)
     season: int = Field(ge=1)
+
+
+class WorkAllowNoSubtitleRequest(BaseModel):
+    media_type: Literal["movie", "tv"]
+    title: str = Field(min_length=1)
+    allow: bool = True
 
 
 class SettingUpdateRequest(BaseModel):
