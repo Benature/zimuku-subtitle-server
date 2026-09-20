@@ -46,6 +46,18 @@ export async function autoMatchFile(fileId: number): Promise<void> {
   return postData(API_ENDPOINTS.MEDIA_AUTO_MATCH(fileId));
 }
 
+export async function setWorkAllowNoSubtitle(
+  mediaType: 'movie' | 'tv',
+  title: string,
+  allow: boolean,
+): Promise<void> {
+  return postData(API_ENDPOINTS.MEDIA_ALLOW_NO_SUBTITLE, {
+    media_type: mediaType,
+    title,
+    allow,
+  });
+}
+
 export async function matchTVSeason(title: string, season: number): Promise<void> {
   return postData(
     `${API_ENDPOINTS.MEDIA_TV_MATCH_SEASON}?title=${encodeURIComponent(title)}&season=${season}`

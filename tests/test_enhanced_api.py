@@ -196,3 +196,41 @@ def test_media_metadata_api_moves_resolution_to_service(tmp_path):
     assert data["filename"] == video_path.name
     assert data["nfo_data"]["title"] == "Movie Title"
     assert data["poster_path"] == f"{movie_dir.name}/folder.jpg"
+
+
+def test_set_work_allow_no_subtitle_api():
+    with Session(engine) as session:
+        media_path = MediaPath(path="/library-api-movies", type="movie", enabled=True)
+        session.add(media_path)
+        session.commit()
+        session.refresh(media_path)
+        session.add(
+            ScannedFile(
+                path_id=media_path.id,
+                type="movie",
+                file_path="/library-api-movies/Silent/Silent.2024.mkv",
+                filename="Silent.2024.mkv",
+                extracted_title="Silent",
+            )
+        )
+        session.commit()
+
+    response = client.post(
+        "/media/works/allow-no-subtitle",
+        json={"media_type": "movie", "title": "Silent", "allow": True},
+    )
+    assert response.status_code == 200
+    assert "Silent" in response.json()["message"]
+
+    with Session(engine) as session:
+        from sqlmodel import select
+
+        scanned = session.exec(select(ScannedFile).where(ScannedFile.extracted_title == "Silent")).one()
+        assert scanned.allow_no_subtitle is True
+
+    # 未知作品返回 404
+    response = client.post(
+        "/media/works/allow-no-subtitle",
+        json={"media_type": "movie", "title": "Ghost", "allow": True},
+    )
+    assert response.status_code == 404

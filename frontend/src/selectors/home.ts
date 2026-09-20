@@ -20,7 +20,8 @@ interface SubtitleStats {
 
 function buildSubtitleStats(files: ScannedFile[]): SubtitleStats {
   const total = files.length;
-  const hasSubtitle = files.filter(file => file.has_subtitle).length;
+  // 允许无字幕的文件不计入缺失统计
+  const hasSubtitle = files.filter(file => file.has_subtitle || file.allow_no_subtitle).length;
 
   return {
     total,

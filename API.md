@@ -15,6 +15,7 @@
 | GET | `/media/files` | 获取扫描的文件列表 | `path_type?` |
 | GET | `/media/library` | 按电影、剧、季、集聚合媒体库，支持 NFO 标题、原始标题、别名搜索 | `level?`, `media_type?`, `query?`, `title?`, `season?`, `offset?`, `limit?` |
 | POST | `/media/files/{id}/auto-match` | 单文件自动匹配 | path: `id` |
+| POST | `/media/works/allow-no-subtitle` | 按作品设置「允许无字幕」标记，标记作品在批量/季补全中跳过；新扫描文件自动继承同作品标记 | body: `media_type`, `title`, `allow` |
 | POST | `/media/tv/match-season` | 剧集季批量补全 | `title`, `season` |
 | POST | `/media/match` | 触发全局扫描 | `path_type?` |
 | GET | `/media/task-status` | 获取当前任务状态 | - |

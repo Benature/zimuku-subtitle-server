@@ -95,6 +95,7 @@ export function buildSidebarItem(
     hasSubCount: group.hasSubCount,
     poster: posterUrl,
     createdAt: group.createdAt,
+    allowNoSubtitle: group.allowNoSubtitle,
   };
 }
 

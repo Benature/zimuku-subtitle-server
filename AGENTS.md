@@ -85,7 +85,7 @@ npm run lint
 - `SearchCache` - 搜索结果缓存（24小时 TTL）
 - `SubtitleTask` - 后台下载任务
 - `MediaPath` - 媒体扫描目录
-- `ScannedFile` - 已扫描的视频文件
+- `ScannedFile` - 已扫描的视频文件（含 `allow_no_subtitle` 作品级标记：允许无字幕的作品在批量/季补全中跳过，新扫描文件自动继承同作品标记）
 - `SubtitleTrash` - 字幕回收站记录（安全移入回收站的文件、元数据与还原状态）
 - `SubtitleAlignmentState` - 字幕与音轨对齐状态（unknown/aligned/misaligned），以文件签名（大小+mtime）校验有效性，字幕文件一旦被修改，读取时状态自动回落为 unknown
 

@@ -7,6 +7,8 @@ export interface BaseMediaGroup {
   createdAt?: string;
   hasSubCount: number;
   totalCount: number;
+  /** 作品下所有文件均标记「允许无字幕」时为 true，不再参与缺字幕补全 */
+  allowNoSubtitle: boolean;
 }
 
 export interface MovieGroup extends BaseMediaGroup {
@@ -80,7 +82,7 @@ function sortGroups<T extends BaseMediaGroup>(
 
 function filterGroups<T extends BaseMediaGroup>(groups: T[], filterOption: FilterOption): T[] {
   if (filterOption === 'missing') {
-    return groups.filter(group => group.hasSubCount < group.totalCount);
+    return groups.filter(group => !group.allowNoSubtitle && group.hasSubCount < group.totalCount);
   }
 
   return groups;
@@ -104,12 +106,14 @@ export function buildMovieGroups(files: ScannedFile[], unknownLabel: string): Mo
         createdAt: file.created_at,
         hasSubCount: 0,
         totalCount: 0,
+        allowNoSubtitle: true,
       });
     }
 
     const group = groups.get(title)!;
     group.files.push(file);
     group.totalCount += 1;
+    group.allowNoSubtitle = group.allowNoSubtitle && file.allow_no_subtitle;
     if (file.has_subtitle) {
       group.hasSubCount += 1;
     }
@@ -135,12 +139,14 @@ export function buildTvGroups(files: ScannedFile[], unknownLabel: string): TvGro
         firstFileId: file.id,
         createdAt: file.created_at,
         seasons: {},
+        allowNoSubtitle: true,
       });
     }
 
     const group = groups.get(title)!;
     addFileToSeasonGroup(group.seasons, file);
     group.totalCount += 1;
+    group.allowNoSubtitle = group.allowNoSubtitle && file.allow_no_subtitle;
     if (file.has_subtitle) {
       group.hasSubCount += 1;
     }

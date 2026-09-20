@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { AllowNoSubtitleToggle } from '../components/AllowNoSubtitleToggle';
 import { MediaGridToolbar } from '../components/MediaGridToolbar';
 import { MediaCard } from '../components/MediaCard';
 import { MediaInfoCard } from '../components/MediaInfoCard';
@@ -107,6 +108,12 @@ export default function MoviesPage() {
                   </code>
                 </div>
               </div>
+
+              <AllowNoSubtitleToggle
+                mediaType="movie"
+                title={selectedMovie.title}
+                allowNoSubtitle={selectedMovie.allowNoSubtitle}
+              />
 
               <div className="space-y-6">
                 <div className="flex items-center justify-between px-2 w-full">

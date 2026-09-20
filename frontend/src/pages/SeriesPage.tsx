@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { alignSeriesSubtitles, autoMatchFile, matchTVSeason } from '../api';
+import { AllowNoSubtitleToggle } from '../components/AllowNoSubtitleToggle';
 import { MediaGridToolbar } from '../components/MediaGridToolbar';
 import { MediaCard } from '../components/MediaCard';
 import { MediaInfoCard } from '../components/MediaInfoCard';
@@ -178,6 +179,12 @@ export default function SeriesPage() {
                 </button>
               </div>
 
+              <AllowNoSubtitleToggle
+                mediaType="tv"
+                title={selectedSeries.title}
+                allowNoSubtitle={selectedSeries.allowNoSubtitle}
+              />
+
               <div className="flex items-center justify-between border-b border-outline-variant/10 relative">
                 <div className="flex gap-6 overflow-x-auto scrollbar-hide">
                   {availableSeasons.map(s => (
@@ -220,7 +227,7 @@ export default function SeriesPage() {
                     <h3 className="text-xl font-bold font-headline text-on-surface">
                       {t('page.movies.localFiles')}
                     </h3>
-                    {currentSeasonFiles.some(f => !f.has_subtitle) && (
+                    {currentSeasonFiles.some(f => !f.has_subtitle && !f.allow_no_subtitle) && (
                       <div className="flex items-center gap-2 bg-error-dim/10 text-error-dim px-3 py-1 rounded-full border border-error-dim/20">
                         <span className="material-symbols-outlined text-sm">warning</span>
                         <span className="text-[11px] font-bold uppercase tracking-wider">

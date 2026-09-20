@@ -90,13 +90,13 @@
       "scheduleCron": "cron 表达式",
       "scheduleCronPlaceholder": "分 时 日 月 周，如 0 3 * * *",
       "scheduleMaxWorks": "每次运行最多补全部数（0 为不限）",
-      "scheduleLastRunWorks": "本次补全：{titles}；剩余待补 {remaining} 部",
+      "scheduleLastRunWorks": "本次补全：{{titles}}；剩余待补 {{remaining}} 部",
       "scheduleNextRun": "下次执行",
       "scheduleNotScheduled": "未调度",
       "scheduleRunning": "任务运行中…",
       "scheduleLastRun": "上次运行",
-      "scheduleLastRunSummary": "扫描 {scanned} 个文件，缺字幕 {missing} 个，成功 {matched} 个，失败 {failed} 个",
-      "scheduleLastRunError": "上次运行出错：{error}",
+      "scheduleLastRunSummary": "扫描 {{scanned}} 个文件，缺字幕 {{missing}} 个，成功 {{matched}} 个，失败 {{failed}} 个",
+      "scheduleLastRunError": "上次运行出错：{{error}}",
       "scheduleRunNow": "立即执行一次",
       "scheduleRunStarted": "已触发扫描补全任务",
       "scheduleRunFailed": "触发失败",
@@ -147,9 +147,14 @@
     "missing": "缺字幕",
     "hasSubtitle": "有字幕",
     "noSubtitle": "无字幕",
+    "noSubtitleNeeded": "无需字幕",
     "incomplete": "字幕不全 {{has}}/{{total}}",
     "rescan": "重新扫描库",
     "matchedCount": "{{has}}/{{total}} 已匹配"
+  },
+  "allowNoSubtitle": {
+    "title": "允许无字幕",
+    "description": "标记后批量与定时补字幕将跳过该作品"
   },
   "action": {
     "autoSearch": "自动搜索",

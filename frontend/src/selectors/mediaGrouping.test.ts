@@ -10,6 +10,7 @@ const movieFiles: ScannedFile[] = [
     file_path: '/movies/Movie A.mkv',
     year: '2024',
     has_subtitle: true,
+    allow_no_subtitle: false,
     type: 'movie',
     created_at: '2026-03-21T10:00:00',
   },
@@ -20,6 +21,7 @@ const movieFiles: ScannedFile[] = [
     file_path: '/movies/Movie A.mp4',
     year: '2024',
     has_subtitle: false,
+    allow_no_subtitle: false,
     type: 'movie',
     created_at: '2026-03-20T10:00:00',
   },
@@ -35,6 +37,7 @@ const tvFiles: ScannedFile[] = [
     season: 1,
     episode: 2,
     has_subtitle: false,
+    allow_no_subtitle: false,
     type: 'tv',
     created_at: '2026-03-22T09:00:00',
   },
@@ -47,6 +50,7 @@ const tvFiles: ScannedFile[] = [
     season: 1,
     episode: 1,
     has_subtitle: true,
+    allow_no_subtitle: false,
     type: 'tv',
     created_at: '2026-03-21T09:00:00',
   },
@@ -83,5 +87,32 @@ describe('mediaGrouping selectors', () => {
     );
 
     expect(groups.map(group => group.title)).toEqual(['Movie A', 'Movie B']);
+  });
+
+  it('全部文件标记允许无字幕时作品视为无需补字幕', () => {
+    const flaggedFiles: ScannedFile[] = [
+      { ...movieFiles[0], id: 20, has_subtitle: false, allow_no_subtitle: true },
+      { ...movieFiles[1], id: 21, allow_no_subtitle: true },
+    ];
+
+    const groups = buildMovieGroups(flaggedFiles, '未知');
+
+    expect(groups[0].allowNoSubtitle).toBe(true);
+    // 缺字幕筛选应排除已标记作品
+    const filtered = buildGroupedMedia(flaggedFiles, 'movie', '', 'name', 'asc', 'missing', '未知');
+    expect(filtered).toHaveLength(0);
+  });
+
+  it('仅部分文件标记时作品仍视为需要字幕', () => {
+    const partialFiles: ScannedFile[] = [
+      { ...movieFiles[0], id: 30, has_subtitle: false, allow_no_subtitle: true },
+      { ...movieFiles[1], id: 31 },
+    ];
+
+    const groups = buildMovieGroups(partialFiles, '未知');
+
+    expect(groups[0].allowNoSubtitle).toBe(false);
+    const filtered = buildGroupedMedia(partialFiles, 'movie', '', 'name', 'asc', 'missing', '未知');
+    expect(filtered).toHaveLength(1);
   });
 });

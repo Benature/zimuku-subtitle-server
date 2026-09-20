@@ -90,13 +90,13 @@
       "scheduleCron": "Cron expression",
       "scheduleCronPlaceholder": "min hour day month weekday, e.g. 0 3 * * *",
       "scheduleMaxWorks": "Max works per run (0 = unlimited)",
-      "scheduleLastRunWorks": "Processed: {titles}; {remaining} works remaining",
+      "scheduleLastRunWorks": "Processed: {{titles}}; {{remaining}} works remaining",
       "scheduleNextRun": "Next run",
       "scheduleNotScheduled": "Not scheduled",
       "scheduleRunning": "Task is running…",
       "scheduleLastRun": "Last run",
-      "scheduleLastRunSummary": "Scanned {scanned} files, {missing} missing subtitles, {matched} matched, {failed} failed",
-      "scheduleLastRunError": "Last run failed: {error}",
+      "scheduleLastRunSummary": "Scanned {{scanned}} files, {{missing}} missing subtitles, {{matched}} matched, {{failed}} failed",
+      "scheduleLastRunError": "Last run failed: {{error}}",
       "scheduleRunNow": "Run once now",
       "scheduleRunStarted": "Scan-and-match task triggered",
       "scheduleRunFailed": "Failed to trigger",
@@ -147,9 +147,14 @@
     "missing": "Missing",
     "hasSubtitle": "Has Subtitles",
     "noSubtitle": "No Subtitles",
+    "noSubtitleNeeded": "No Subtitle Needed",
     "incomplete": "Incomplete {{has}}/{{total}}",
     "rescan": "Rescan Library",
     "matchedCount": "{{has}}/{{total}} Matched"
+  },
+  "allowNoSubtitle": {
+    "title": "Allow No Subtitles",
+    "description": "Batch and scheduled subtitle matching will skip this work"
   },
   "action": {
     "autoSearch": "Auto Search",

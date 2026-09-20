@@ -27,6 +27,7 @@ export interface ScannedFile {
   season?: number | null;
   episode?: number | null;
   has_subtitle: boolean;
+  allow_no_subtitle: boolean;
   series_root_path?: string;
   type: 'movie' | 'tv';
   created_at: string;
@@ -118,6 +119,7 @@ export interface SidebarItem {
   createdAt?: string;
   alignmentStatus?: AlignmentStatus | null;
   languages?: string[];
+  allowNoSubtitle?: boolean;
 }
 
 export type SortOption = 'name' | 'year' | 'created' | 'status';
