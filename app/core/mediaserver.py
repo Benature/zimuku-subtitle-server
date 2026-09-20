@@ -10,6 +10,7 @@ from .config import ConfigManager, SettingKey
 logger = logging.getLogger(__name__)
 
 _UNWATCHED_PAGE_SIZE = 1000
+_BACKDROP_SEARCH_LIMIT = 10
 _YEAR_SUFFIX_PATTERN = re.compile(r"\s*\(\d{4}\)\s*$")
 
 MEDIA_SERVER_TYPES = ("jellyfin", "emby", "plex")
@@ -103,6 +104,30 @@ class BaseMediaServerClient:
     async def _fetch_unwatched(self, client: httpx.AsyncClient) -> Optional[UnwatchedIndex]:
         raise NotImplementedError
 
+    async def fetch_backdrop(self, title: str) -> Optional[bytes]:
+        """拉取指定作品的横屏 backdrop 封面图；未启用、找不到或失败时返回 None。"""
+        if not self._enabled or not self.configured or not title:
+            return None
+        try:
+            async with self._build_client() as client:
+                return await self._fetch_backdrop(client, title)
+        except Exception as exc:
+            logger.warning("拉取 %s 作品《%s》封面失败: %s", self.server_name, title, exc)
+            return None
+
+    async def _fetch_backdrop(self, client: httpx.AsyncClient, title: str) -> Optional[bytes]:
+        return None
+
+    @staticmethod
+    async def _download_image(client: httpx.AsyncClient, url: str) -> Optional[bytes]:
+        """下载图片并校验 content-type，非图片或空内容返回 None。"""
+        response = await client.get(url)
+        response.raise_for_status()
+        content_type = response.headers.get("content-type", "")
+        if not content_type.startswith("image/") or not response.content:
+            return None
+        return response.content
+
     async def test_connection(self) -> tuple[bool, str]:
         """测试服务器连接与凭据有效性，返回 (是否成功, 描述信息)。"""
         if not self.configured:
@@ -178,6 +203,40 @@ class EmbyLikeClient(BaseMediaServerClient):
             return False, f"已连接 {server} ({version})，但未找到可用用户"
         return True, f"连接成功：{server} ({version})"
 
+    @staticmethod
+    def _pick_backdrop_item(items: list, title: str) -> Optional[dict]:
+        """优先选择规范化标题精确匹配的条目，否则回退到首个搜索结果。"""
+        normalized = normalize_media_server_title(title)
+        for item in items:
+            if isinstance(item, dict) and normalize_media_server_title(str(item.get("Name") or "")) == normalized:
+                return item
+        return items[0] if items else None
+
+    async def _fetch_backdrop(self, client: httpx.AsyncClient, title: str) -> Optional[bytes]:
+        response = await client.get(
+            "/Items",
+            params={
+                "searchTerm": title,
+                "IncludeItemTypes": "Series,Movie",
+                "Recursive": "true",
+                "Limit": _BACKDROP_SEARCH_LIMIT,
+            },
+        )
+        response.raise_for_status()
+        payload = response.json()
+        items = payload.get("Items", []) if isinstance(payload, dict) else payload
+        item = self._pick_backdrop_item(items, title)
+        if not item:
+            return None
+        item_id = item.get("Id")
+        if not item_id:
+            return None
+        try:
+            return await self._download_image(client, f"/Items/{item_id}/Images/Backdrop")
+        except httpx.HTTPStatusError:
+            # 无横屏 backdrop 时回退到主海报图
+            return await self._download_image(client, f"/Items/{item_id}/Images/Primary")
+
 
 class JellyfinClient(EmbyLikeClient):
     """Jellyfin 客户端，认证走 ``Authorization: MediaBrowser Token="..."``（兼容 Jellyfin 12+）。"""
@@ -249,6 +308,36 @@ class PlexClient(BaseMediaServerClient):
         version = info.get("version") or "unknown"
         return True, f"连接成功：Plex ({version})"
 
+    async def _fetch_backdrop(self, client: httpx.AsyncClient, title: str) -> Optional[bytes]:
+        response = await client.get("/library/sections")
+        response.raise_for_status()
+        directories = self._container(response.json()).get("Directory") or []
+
+        normalized = normalize_media_server_title(title)
+        for section in directories:
+            if not isinstance(section, dict):
+                continue
+            section_key = section.get("key")
+            section_type = section.get("type")
+            if not section_key or section_type not in ("show", "movie"):
+                continue
+            params = {"type": 2 if section_type == "show" else 1, "title": title}
+            section_response = await client.get(f"/library/sections/{section_key}/all", params=params)
+            section_response.raise_for_status()
+            metadata = self._container(section_response.json()).get("Metadata") or []
+            for item in metadata:
+                if not isinstance(item, dict):
+                    continue
+                if normalize_media_server_title(str(item.get("title") or "")) != normalized:
+                    continue
+                # art 为横屏背景图（可能为相对路径或 metadata provider 的绝对 URL）
+                art = item.get("art")
+                if art:
+                    image = await self._download_image(client, art)
+                    if image:
+                        return image
+        return None
+
 
 _CLIENT_CLASSES = {
     JellyfinClient.server_type: JellyfinClient,
@@ -309,3 +398,16 @@ async def fetch_unwatched_index() -> Optional[UnwatchedIndex]:
     if client is None:
         return None
     return await client.fetch_unwatched()
+
+
+async def fetch_backdrops(titles: list[str]) -> dict[str, bytes]:
+    """按当前系统设置拉取各作品的横屏封面图；未启用或拉取失败的作品自动跳过。"""
+    client = build_media_server_client()
+    if client is None:
+        return {}
+    images: dict[str, bytes] = {}
+    for title in titles:
+        image = await client.fetch_backdrop(title)
+        if image:
+            images[title] = image
+    return images

@@ -164,6 +164,46 @@ async def test_notify_skips_when_webhook_missing():
 
 
 @pytest.mark.anyio
+async def test_notify_fetches_backdrops_and_passes_images_to_report():
+    notifier_mock = AsyncMock()
+    notifier_mock.configured = True
+    notifier_mock.image_upload_configured = True
+    stats = ScheduledJobStats(matched=1, titles=["Show A"])
+    fetch_mock = AsyncMock(return_value={"Show A": b"img-bytes"})
+
+    with (
+        patch("app.services.scheduler_service.ConfigManager") as config_mock,
+        patch("app.services.scheduler_service.FeishuNotifier", return_value=notifier_mock),
+        patch("app.services.scheduler_service.fetch_backdrops", fetch_mock),
+    ):
+        config_mock.get_bool.return_value = True
+        await SchedulerService._notify(stats)
+
+    fetch_mock.assert_awaited_once_with(["Show A"])
+    notifier_mock.send_scheduled_report.assert_awaited_once_with(stats, images={"Show A": b"img-bytes"})
+
+
+@pytest.mark.anyio
+async def test_notify_skips_backdrop_fetch_without_app_credentials():
+    notifier_mock = AsyncMock()
+    notifier_mock.configured = True
+    notifier_mock.image_upload_configured = False
+    stats = ScheduledJobStats(matched=1, titles=["Show A"])
+    fetch_mock = AsyncMock(return_value={})
+
+    with (
+        patch("app.services.scheduler_service.ConfigManager") as config_mock,
+        patch("app.services.scheduler_service.FeishuNotifier", return_value=notifier_mock),
+        patch("app.services.scheduler_service.fetch_backdrops", fetch_mock),
+    ):
+        config_mock.get_bool.return_value = True
+        await SchedulerService._notify(stats)
+
+    fetch_mock.assert_not_called()
+    notifier_mock.send_scheduled_report.assert_awaited_once_with(stats, images={})
+
+
+@pytest.mark.anyio
 async def test_run_now_records_last_run_summary(service):
     stats = ScheduledJobStats(scanned_files=5, missing_subtitle=1, matched=1)
 

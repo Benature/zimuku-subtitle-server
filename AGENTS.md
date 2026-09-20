@@ -60,8 +60,8 @@ npm run lint
   - `archive.py`（`app/core/archive/`）- ZIP/7z/RAR 压缩包解压，解决文件名乱码（CP437 → GBK）；RAR 直接调用系统 bsdtar（libarchive）解压
   - `ocr.py` - 轻量级像素采样 OCR 引擎，用于验证码识别
   - `aligner.py` - 字幕音轨对齐引擎，封装 alass/ffsubsync 调用、ffmpeg 依赖检测与 UTF-8 编码规整
-  - `notifier.py` - 飞书自定义机器人通知（支持加签 secret），发送失败仅记录日志
-  - `mediaserver.py` - 媒体服务器客户端（Jellyfin/Emby/Plex），拉取用户未观看索引（`UnwatchedIndex`），供批量补全排序使用；Jellyfin 走 `Authorization: MediaBrowser Token="..."`（兼容 12+），Emby 走 `X-Emby-Token`，Plex 走 `X-Plex-Token`，均不使用 `?api_key=` 查询参数；失败仅记录日志并返回 None；`build_media_server_client` 对旧版 `jellyfin_*` 设置自动兼容回退
+  - `notifier.py` - 飞书自定义机器人通知（支持加签 secret），发送失败仅记录日志；配置自建应用凭据（`feishu_app_id` / `feishu_app_secret`）后，可先将封面图上传飞书换取 image_key，再以卡片消息内嵌每部作品的横屏封面，上传/卡片发送失败自动回退纯文本
+  - `mediaserver.py` - 媒体服务器客户端（Jellyfin/Emby/Plex），拉取用户未观看索引（`UnwatchedIndex`），供批量补全排序使用；Jellyfin 走 `Authorization: MediaBrowser Token="..."`（兼容 12+），Emby 走 `X-Emby-Token`，Plex 走 `X-Plex-Token`，均不使用 `?api_key=` 查询参数；失败仅记录日志并返回 None；`build_media_server_client` 对旧版 `jellyfin_*` 设置自动兼容回退；`fetch_backdrops(titles)` 按规范化标题拉取各作品横屏封面（Jellyfin/Emby 优先 Backdrop、缺失回退 Primary，Plex 用条目 `art`），供飞书通知内嵌封面使用
   - `config.py` - 配置管理
 - **`app/db/`** - SQLModel 数据库模型与会话管理
 - **`app/services/`** - Service 服务层（MediaService、TaskService、SearchService、SystemService、SchedulerService）
@@ -141,7 +141,7 @@ python -m app.mcp.run_stdio
 - 剧集级批量对齐：剧集详情面板的「全剧音轨对齐」按钮调用 `POST /media/series/align-subtitles`（body/query: `title`），后台对整部剧所有集的全部关联字幕顺序执行对齐（单条失败不中断，自动备份 .orig）；任务状态通过 `/media/task-status` 的 `aligning_series`（剧集标题列表）与 `aligning_files`（文件 ID 列表）暴露，前端轮询展示「对齐中」状态（卡片墙左上角 tag 旋转）
 - 对齐资源守卫：alass/ffsubsync 以 `nice -n 10` 低优先级运行；所有对齐类操作（单文件对齐、对齐检查、任务对齐、剧集批量对齐）执行前通过 `app/core/system_load.py` 检查系统负载（load1/核数 ≥ 1.0 或可用内存 < 10% 判定繁忙），繁忙时 API 返回 503、MCP 返回错误提示；下载后自动对齐在系统繁忙时直接跳过；MCP 工具 `align_subtitle` / `check_subtitle_alignment` 及各 API body 均支持 `force` 参数（默认 false）跳过守卫；批量入口守卫一次，批量中途不再重复检查
 - 自动匹配搜索词按优先级回退：NFO 元数据（nfo_title → nfo_original_title → nfo_aliases）优先，最后回退到目录名提取的 extracted_title（`build_search_queries`），第一个有搜索结果的词即被采用
-- 定时扫描补字幕：设置项 `schedule_enabled` / `schedule_cron`（默认每天 03:00），触发后先刷新媒体库，再对缺字幕的作品顺序补全（间隔 2s）；`schedule_max_works_per_run`（默认 1，0 表示不限）限制每次运行补全的作品数量，作品优先级为：媒体服务器未观看作品（启用联动且拉取成功时）→ 能检索到 NFO 元数据（nfo_title / nfo_original_title）的作品 → 按缺字幕文件数降序、标题升序兜底；完成后可按 `feishu_notify_enabled` / `feishu_webhook_url` / `feishu_webhook_secret`（加签可选）推送飞书汇总通知（含本次补全作品与剩余待补数）；前端系统设置页有专属配置卡片，支持立即执行与发送测试通知
+- 定时扫描补字幕：设置项 `schedule_enabled` / `schedule_cron`（默认每天 03:00），触发后先刷新媒体库，再对缺字幕的作品顺序补全（间隔 2s）；`schedule_max_works_per_run`（默认 1，0 表示不限）限制每次运行补全的作品数量，作品优先级为：媒体服务器未观看作品（启用联动且拉取成功时）→ 能检索到 NFO 元数据（nfo_title / nfo_original_title）的作品 → 按缺字幕文件数降序、标题升序兜底；完成后可按 `feishu_notify_enabled` / `feishu_webhook_url` / `feishu_webhook_secret`（加签可选）推送飞书汇总通知（含本次补全作品与剩余待补数）；再配置 `feishu_app_id` / `feishu_app_secret`（自建应用凭据，可选）后，通知升级为卡片消息，每部补全作品内嵌一张媒体服务器横屏封面图；前端系统设置页有专属配置卡片，支持立即执行与发送测试通知
 - 媒体服务器联动：设置项 `media_server_enabled` / `media_server_type`（jellyfin/emby/plex）/ `media_server_base_url` / `media_server_api_key` / `media_server_user_id`（Jellyfin/Emby 的 32 位 GUID，留空自动使用首个用户，Plex 无需填写）；启用后批量补全（`LibraryMatchWorkflow`）优先处理未观看的作品（按规范化标题匹配，剧集用 SeriesName/grandparentTitle、电影用 Name/title）；`POST /settings/media-server/test` 可测试连接与凭据有效性；拉取失败自动回退原优先级，不影响主流程
 - 「允许无字幕」作品标记：电影/剧集详情面板的开关调用 `POST /media/works/allow-no-subtitle`（body: `media_type`, `title`, `allow`），按作品下全部文件置位 `ScannedFile.allow_no_subtitle`；批量补全（`LibraryMatchWorkflow`）与季补全（`SeasonMatchWorkflow`）跳过已标记文件，媒体扫描时新发现文件自动继承同作品（类型 + 规范化标题）标记；前端卡片墙显示「无需字幕」徽标且不计入缺字幕筛选/统计，手动单文件匹配不受影响
 - 扫描清理守卫：媒体根目录不可访问（挂载缺失、磁盘未挂载等）时，`MediaScanPipeline` 跳过该路径的扫描与全部记录清理（`cleanup_missing_files` 与发现清理均不生效），仅记录 warning，防止挂载异常导致记录被批量误删

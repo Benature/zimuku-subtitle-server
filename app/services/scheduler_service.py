@@ -10,7 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlmodel import func, select
 
 from ..core.config import ConfigManager, SettingKey
-from ..core.mediaserver import fetch_unwatched_index
+from ..core.mediaserver import fetch_backdrops, fetch_unwatched_index
 from ..core.notifier import FeishuNotifier, ScheduledJobStats
 from ..db.models import ScannedFile
 from ..db.session import session_scope
@@ -180,7 +180,10 @@ class SchedulerService:
         if not notifier.configured:
             logger.warning("飞书通知已启用但未配置 webhook，跳过发送")
             return
-        await notifier.send_scheduled_report(stats)
+        images = {}
+        if stats.titles and notifier.image_upload_configured:
+            images = await fetch_backdrops(stats.titles)
+        await notifier.send_scheduled_report(stats, images=images)
 
 
 scheduler_service = SchedulerService()

@@ -110,3 +110,117 @@ async def test_scheduled_report_includes_titles_and_remaining_works():
     content = sent[0]
     assert "本次补全作品：《Show A》" in content
     assert "剩余待补作品：5 部" in content
+
+
+def _card_client_mock():
+    """模拟飞书开放平台的 token / 上传 / webhook 三个端点。"""
+    client_mock = AsyncMock()
+    uploads: list[dict] = []
+    webhook_payloads: list[dict] = []
+
+    async def _post(url, **kwargs):
+        if "tenant_access_token" in url:
+            return _ok_response({"code": 0, "tenant_access_token": "token-123"})
+        if "/im/v1/images" in url:
+            uploads.append(kwargs)
+            return _ok_response({"code": 0, "data": {"image_key": f"img-key-{len(uploads)}"}})
+        webhook_payloads.append(kwargs["json"])
+        return _ok_response({"code": 0, "msg": "success"})
+
+    client_mock.post.side_effect = _post
+    return client_mock, uploads, webhook_payloads
+
+
+@pytest.mark.anyio
+async def test_scheduled_report_sends_card_with_per_work_images():
+    client_mock, uploads, webhook_payloads = _card_client_mock()
+
+    with patch("app.core.notifier.httpx.AsyncClient") as client_cls:
+        client_cls.return_value.__aenter__.return_value = client_mock
+        notifier = FeishuNotifier(
+            webhook_url="https://open.feishu.cn/hook/xxx",
+            secret="",
+            app_id="cli_x",
+            app_secret="sec_x",
+        )
+        stats = ScheduledJobStats(scanned_files=10, missing_subtitle=2, matched=2, titles=["Show A", "Show B"])
+        delivered = await notifier.send_scheduled_report(stats, images={"Show A": b"img-a", "Show B": b"img-b"})
+
+    assert delivered is True
+    assert len(uploads) == 2
+    assert uploads[0]["headers"]["Authorization"] == "Bearer token-123"
+    assert uploads[0]["data"] == {"image_type": "message"}
+    assert uploads[0]["files"]["image"][1] == b"img-a"
+    assert uploads[1]["files"]["image"][1] == b"img-b"
+
+    payload = webhook_payloads[0]
+    assert payload["msg_type"] == "interactive"
+    elements = payload["card"]["elements"]
+    assert "本次补全作品" in elements[0]["content"]
+    img_elements = [e for e in elements if e["tag"] == "img"]
+    assert [e["img_key"] for e in img_elements] == ["img-key-1", "img-key-2"]
+
+
+@pytest.mark.anyio
+async def test_scheduled_report_falls_back_to_text_without_app_credentials():
+    sent: list[str] = []
+    notifier = FeishuNotifier(webhook_url="https://open.feishu.cn/hook/xxx", secret="", app_id="", app_secret="")
+    notifier.send_text = AsyncMock(side_effect=lambda content: sent.append(content) or True)
+
+    stats = ScheduledJobStats(scanned_files=1, matched=1, titles=["Show A"])
+    delivered = await notifier.send_scheduled_report(stats, images={"Show A": b"img"})
+
+    assert delivered is True
+    assert len(sent) == 1
+
+
+@pytest.mark.anyio
+async def test_scheduled_report_falls_back_to_text_when_upload_fails():
+    client_mock = AsyncMock()
+    client_mock.post.side_effect = RuntimeError("network down")
+    sent: list[str] = []
+
+    with patch("app.core.notifier.httpx.AsyncClient") as client_cls:
+        client_cls.return_value.__aenter__.return_value = client_mock
+        notifier = FeishuNotifier(
+            webhook_url="https://open.feishu.cn/hook/xxx",
+            secret="",
+            app_id="cli_x",
+            app_secret="sec_x",
+        )
+        notifier.send_text = AsyncMock(side_effect=lambda content: sent.append(content) or True)
+        stats = ScheduledJobStats(scanned_files=1, matched=1, titles=["Show A"])
+        delivered = await notifier.send_scheduled_report(stats, images={"Show A": b"img"})
+
+    assert delivered is True
+    assert len(sent) == 1
+
+
+@pytest.mark.anyio
+async def test_scheduled_report_falls_back_to_text_when_all_uploads_fail():
+    client_mock = AsyncMock()
+
+    async def _post(url, **kwargs):
+        if "tenant_access_token" in url:
+            return _ok_response({"code": 0, "tenant_access_token": "token-123"})
+        if "/im/v1/images" in url:
+            return _ok_response({"code": 500, "msg": "no permission"})
+        return _ok_response({"code": 0, "msg": "success"})
+
+    client_mock.post.side_effect = _post
+    sent: list[str] = []
+
+    with patch("app.core.notifier.httpx.AsyncClient") as client_cls:
+        client_cls.return_value.__aenter__.return_value = client_mock
+        notifier = FeishuNotifier(
+            webhook_url="https://open.feishu.cn/hook/xxx",
+            secret="",
+            app_id="cli_x",
+            app_secret="sec_x",
+        )
+        notifier.send_text = AsyncMock(side_effect=lambda content: sent.append(content) or True)
+        stats = ScheduledJobStats(scanned_files=1, matched=1, titles=["Show A"])
+        delivered = await notifier.send_scheduled_report(stats, images={"Show A": b"img"})
+
+    assert delivered is True
+    assert len(sent) == 1

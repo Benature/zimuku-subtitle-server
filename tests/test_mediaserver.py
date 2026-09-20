@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from app.core.config import ConfigManager, SettingKey
@@ -9,6 +10,7 @@ from app.core.mediaserver import (
     PlexClient,
     UnwatchedIndex,
     build_media_server_client,
+    fetch_backdrops,
     fetch_unwatched_index,
     normalize_media_server_title,
 )
@@ -311,3 +313,138 @@ async def test_fetch_unwatched_index_returns_none_when_not_configured():
     config_mock = _settings_mock({})
     with patch("app.core.mediaserver.ConfigManager", config_mock):
         assert await fetch_unwatched_index() is None
+
+
+def _image_response(content: bytes = b"fake-jpeg") -> MagicMock:
+    response = MagicMock()
+    response.headers = {"content-type": "image/jpeg"}
+    response.content = content
+    response.raise_for_status.return_value = None
+    return response
+
+
+def _not_found_response() -> MagicMock:
+    response = MagicMock()
+    response.raise_for_status.side_effect = httpx.HTTPStatusError("404", request=MagicMock(), response=MagicMock())
+    return response
+
+
+@pytest.mark.anyio
+async def test_fetch_backdrop_returns_none_when_disabled_or_empty_title():
+    client = JellyfinClient(base_url="http://ms.local", api_key="key", enabled=False)
+    assert await client.fetch_backdrop("Fresh Show") is None
+    enabled_client = JellyfinClient(base_url="http://ms.local", api_key="key", enabled=True)
+    assert await enabled_client.fetch_backdrop("") is None
+
+
+@pytest.mark.anyio
+async def test_jellyfin_fetch_backdrop_downloads_backdrop_image():
+    client_mock = _build_client_mock(
+        {
+            "/Items": [_ok_response({"Items": [{"Id": "item-1", "Name": "Fresh Show (2024)", "Type": "Series"}]})],
+            "/Items/item-1/Images/Backdrop": [_image_response(b"backdrop-bytes")],
+        }
+    )
+
+    with patch("app.core.mediaserver.httpx.AsyncClient") as client_cls:
+        client_cls.return_value.__aenter__.return_value = client_mock
+        client = JellyfinClient(base_url="http://ms.local", api_key="key", user_id="uid", enabled=True)
+        image = await client.fetch_backdrop("Fresh Show")
+
+    assert image == b"backdrop-bytes"
+    search_call = client_mock.get.call_args_list[0]
+    assert search_call.kwargs["params"]["searchTerm"] == "Fresh Show"
+
+
+@pytest.mark.anyio
+async def test_jellyfin_fetch_backdrop_falls_back_to_primary_when_backdrop_missing():
+    client_mock = _build_client_mock(
+        {
+            "/Items": [_ok_response({"Items": [{"Id": "item-1", "Name": "Some Movie", "Type": "Movie"}]})],
+            "/Items/item-1/Images/Backdrop": [_not_found_response()],
+            "/Items/item-1/Images/Primary": [_image_response(b"primary-bytes")],
+        }
+    )
+
+    with patch("app.core.mediaserver.httpx.AsyncClient") as client_cls:
+        client_cls.return_value.__aenter__.return_value = client_mock
+        client = EmbyClient(base_url="http://ms.local:8096", api_key="key", user_id="uid", enabled=True)
+        image = await client.fetch_backdrop("Some Movie")
+
+    assert image == b"primary-bytes"
+
+
+@pytest.mark.anyio
+async def test_jellyfin_fetch_backdrop_returns_none_when_no_search_result():
+    client_mock = _build_client_mock({"/Items": [_ok_response({"Items": []})]})
+
+    with patch("app.core.mediaserver.httpx.AsyncClient") as client_cls:
+        client_cls.return_value.__aenter__.return_value = client_mock
+        client = JellyfinClient(base_url="http://ms.local", api_key="key", user_id="uid", enabled=True)
+        assert await client.fetch_backdrop("Missing Show") is None
+
+
+@pytest.mark.anyio
+async def test_plex_fetch_backdrop_downloads_art_image():
+    client_mock = _build_client_mock(
+        {
+            "/library/sections": [
+                _ok_response({"MediaContainer": {"Directory": [{"key": "1", "type": "show", "title": "剧集"}]}})
+            ],
+            "/library/sections/1/all": [
+                _ok_response(
+                    {
+                        "MediaContainer": {
+                            "Metadata": [{"title": "Fresh Show (2024)", "art": "/library/metadata/9/art/123"}]
+                        }
+                    }
+                )
+            ],
+            "/library/metadata/9/art/123": [_image_response(b"art-bytes")],
+        }
+    )
+
+    with patch("app.core.mediaserver.httpx.AsyncClient") as client_cls:
+        client_cls.return_value.__aenter__.return_value = client_mock
+        client = PlexClient(base_url="http://ms.local:32400", api_key="token", enabled=True)
+        image = await client.fetch_backdrop("Fresh Show")
+
+    assert image == b"art-bytes"
+    search_call = [call for call in client_mock.get.call_args_list if call.args[0] == "/library/sections/1/all"][0]
+    assert search_call.kwargs["params"] == {"type": 2, "title": "Fresh Show"}
+
+
+@pytest.mark.anyio
+async def test_plex_fetch_backdrop_returns_none_when_title_mismatch():
+    client_mock = _build_client_mock(
+        {
+            "/library/sections": [
+                _ok_response({"MediaContainer": {"Directory": [{"key": "1", "type": "show", "title": "剧集"}]}})
+            ],
+            "/library/sections/1/all": [
+                _ok_response({"MediaContainer": {"Metadata": [{"title": "Other Show", "art": "/art/1"}]}})
+            ],
+        }
+    )
+
+    with patch("app.core.mediaserver.httpx.AsyncClient") as client_cls:
+        client_cls.return_value.__aenter__.return_value = client_mock
+        client = PlexClient(base_url="http://ms.local:32400", api_key="token", enabled=True)
+        assert await client.fetch_backdrop("Fresh Show") is None
+
+
+@pytest.mark.anyio
+async def test_fetch_backdrops_collects_images_and_skips_failures():
+    client_mock = AsyncMock()
+    client_mock.fetch_backdrop.side_effect = lambda title: {"Show A": b"img-a"}.get(title)
+
+    with patch("app.core.mediaserver.build_media_server_client", return_value=client_mock):
+        images = await fetch_backdrops(["Show A", "Show B"])
+
+    assert images == {"Show A": b"img-a"}
+
+
+@pytest.mark.anyio
+async def test_fetch_backdrops_returns_empty_when_not_configured():
+    with patch("app.core.mediaserver.build_media_server_client", return_value=None):
+        assert await fetch_backdrops(["Show A"]) == {}
