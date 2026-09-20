@@ -286,7 +286,12 @@ class SubtitleAligner:
         split_penalty: float,
         timeout_seconds: int,
     ) -> None:
+        # 对齐属于后台批处理：通过 nice 降低 CPU 优先级，避免长时间打满宿主机 CPU
+        # 而影响同机其他服务及本服务 API（含 /health）的响应。ffmpeg 子进程会继承该优先级。
         cmd = [
+            "nice",
+            "-n",
+            "10",
             alass_bin,
             str(reference_path),
             str(input_sub_path),
@@ -325,7 +330,11 @@ class SubtitleAligner:
         output_sub_path: Path,
         timeout_seconds: int,
     ) -> None:
+        # 同 _run_alass：后台批处理降低 CPU 优先级，保护宿主机其他服务与 API 响应。
         cmd = [
+            "nice",
+            "-n",
+            "10",
             ffsubsync_bin,
             str(reference_path),
             "-i",
