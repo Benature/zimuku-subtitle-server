@@ -117,7 +117,7 @@
         "emby": "Emby",
         "plex": "Plex"
       },
-      "mediaServerBaseUrlPlaceholder": "http://192.168.1.10:8096",
+      "mediaServerBaseUrlPlaceholder": "http://127.0.0.1:8096",
       "mediaServerApiKeyPlaceholder": "API Key / X-Plex-Token",
       "mediaServerUserIdPlaceholder": "User ID (32-char GUID, empty = first user)",
       "mediaServerTest": "Test connection",

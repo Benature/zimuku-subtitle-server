@@ -23,6 +23,8 @@ class SettingKey:
     FEISHU_NOTIFY_ENABLED = "feishu_notify_enabled"
     FEISHU_WEBHOOK_URL = "feishu_webhook_url"
     FEISHU_WEBHOOK_SECRET = "feishu_webhook_secret"
+    FEISHU_APP_ID = "feishu_app_id"
+    FEISHU_APP_SECRET = "feishu_app_secret"
     MEDIA_SERVER_ENABLED = "media_server_enabled"
     MEDIA_SERVER_TYPE = "media_server_type"
     MEDIA_SERVER_BASE_URL = "media_server_base_url"
@@ -114,6 +116,16 @@ SETTINGS_DEFINITIONS = {
         default="",
         description="飞书机器人加签密钥（机器人未开启加签则留空）",
     ),
+    SettingKey.FEISHU_APP_ID: SettingDefinition(
+        key=SettingKey.FEISHU_APP_ID,
+        default="",
+        description="飞书自建应用 App ID（可选，配置后通知中可内嵌媒体服务器横屏封面图）",
+    ),
+    SettingKey.FEISHU_APP_SECRET: SettingDefinition(
+        key=SettingKey.FEISHU_APP_SECRET,
+        default="",
+        description="飞书自建应用 App Secret（可选，与 App ID 配合用于上传封面图）",
+    ),
     SettingKey.MEDIA_SERVER_ENABLED: SettingDefinition(
         key=SettingKey.MEDIA_SERVER_ENABLED,
         default="false",
@@ -128,7 +140,7 @@ SETTINGS_DEFINITIONS = {
     SettingKey.MEDIA_SERVER_BASE_URL: SettingDefinition(
         key=SettingKey.MEDIA_SERVER_BASE_URL,
         default="",
-        description="媒体服务器地址（如 http://192.168.1.10:8096）",
+        description="媒体服务器地址（如 http://127.0.0.1:8096，容器部署时需填容器可访问的地址）",
     ),
     SettingKey.MEDIA_SERVER_API_KEY: SettingDefinition(
         key=SettingKey.MEDIA_SERVER_API_KEY,

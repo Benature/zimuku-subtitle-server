@@ -121,6 +121,43 @@ export default function SettingsPage() {
     }
   };
 
+  const saveSettingsGroup = async (values: Record<string, string>): Promise<void> => {
+    try {
+      for (const [key, value] of Object.entries(values)) {
+        const setting = settings.find(s => s.key === key);
+        await updateSettingMutation.mutateAsync({ key, value, description: setting?.description });
+      }
+      showToast(t('page.settings.saved'), 'success');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      showToast(t('page.settings.saveFailed') + ': ' + message, 'error');
+    }
+  };
+
+  const handleSaveMediaServerSettings = async (): Promise<void> => {
+    await saveSettingsGroup({
+      media_server_type: effectiveMediaServerType,
+      media_server_base_url: formValues['media_server_base_url'] ?? mediaServerBaseUrl,
+      media_server_api_key: formValues['media_server_api_key'] ?? mediaServerApiKey,
+      media_server_user_id: formValues['media_server_user_id'] ?? mediaServerUserId,
+    });
+  };
+
+  const handleSaveScheduleSettings = async (): Promise<void> => {
+    await saveSettingsGroup({
+      schedule_cron: formValues['schedule_cron'] ?? scheduleCron,
+      schedule_max_works_per_run: formValues['schedule_max_works_per_run'] ?? scheduleMaxWorks,
+    });
+    await scheduleStatusQuery.refetch();
+  };
+
+  const handleSaveFeishuSettings = async (): Promise<void> => {
+    await saveSettingsGroup({
+      feishu_webhook_url: formValues['feishu_webhook_url'] ?? feishuWebhook,
+      feishu_webhook_secret: formValues['feishu_webhook_secret'] ?? feishuSecret,
+    });
+  };
+
   const handleToggleAutoAlign = async (): Promise<void> => {
     try {
       await updateSettingMutation.mutateAsync({
@@ -349,21 +386,13 @@ export default function SettingsPage() {
             </div>
 
             <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={formValues['schedule_cron'] ?? scheduleCron}
-                  onChange={e => setFormValues(prev => ({ ...prev, schedule_cron: e.target.value }))}
-                  placeholder={t('page.settings.scheduleCronPlaceholder')}
-                  className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
-                />
-                <button
-                  onClick={() => handleSaveSetting('schedule_cron')}
-                  className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
-                >
-                  {t('page.settings.save')}
-                </button>
-              </div>
+              <input
+                type="text"
+                value={formValues['schedule_cron'] ?? scheduleCron}
+                onChange={e => setFormValues(prev => ({ ...prev, schedule_cron: e.target.value }))}
+                placeholder={t('page.settings.scheduleCronPlaceholder')}
+                className="w-full bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
+              />
 
               <div className="flex items-center gap-2">
                 <input
@@ -374,12 +403,6 @@ export default function SettingsPage() {
                   className="w-28 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
                 />
                 <span className="flex-1 text-xs text-on-surface-variant">{t('page.settings.scheduleMaxWorks')}</span>
-                <button
-                  onClick={() => handleSaveSetting('schedule_max_works_per_run')}
-                  className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
-                >
-                  {t('page.settings.save')}
-                </button>
               </div>
 
               <div className="text-xs text-on-surface-variant space-y-1">
@@ -414,13 +437,22 @@ export default function SettingsPage() {
                 )}
               </div>
 
-              <button
-                onClick={handleRunScheduleNow}
-                disabled={runScheduleNowMutation.isPending}
-                className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
-              >
-                {t('page.settings.scheduleRunNow')}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSaveScheduleSettings}
+                  disabled={updateSettingMutation.isPending}
+                  className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
+                >
+                  {t('page.settings.save')}
+                </button>
+                <button
+                  onClick={handleRunScheduleNow}
+                  disabled={runScheduleNowMutation.isPending}
+                  className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
+                >
+                  {t('page.settings.scheduleRunNow')}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -451,45 +483,38 @@ export default function SettingsPage() {
             </div>
 
             <div className="space-y-4">
+              <input
+                type="text"
+                value={formValues['feishu_webhook_url'] ?? feishuWebhook}
+                onChange={e => setFormValues(prev => ({ ...prev, feishu_webhook_url: e.target.value }))}
+                placeholder={t('page.settings.feishuWebhookPlaceholder')}
+                className="w-full bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
+              />
+
+              <input
+                type="password"
+                value={formValues['feishu_webhook_secret'] ?? feishuSecret}
+                onChange={e => setFormValues(prev => ({ ...prev, feishu_webhook_secret: e.target.value }))}
+                placeholder={t('page.settings.feishuSecretPlaceholder')}
+                className="w-full bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
+              />
+
               <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={formValues['feishu_webhook_url'] ?? feishuWebhook}
-                  onChange={e => setFormValues(prev => ({ ...prev, feishu_webhook_url: e.target.value }))}
-                  placeholder={t('page.settings.feishuWebhookPlaceholder')}
-                  className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
-                />
                 <button
-                  onClick={() => handleSaveSetting('feishu_webhook_url')}
-                  className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
+                  onClick={handleSaveFeishuSettings}
+                  disabled={updateSettingMutation.isPending}
+                  className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
                 >
                   {t('page.settings.save')}
                 </button>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="password"
-                  value={formValues['feishu_webhook_secret'] ?? feishuSecret}
-                  onChange={e => setFormValues(prev => ({ ...prev, feishu_webhook_secret: e.target.value }))}
-                  placeholder={t('page.settings.feishuSecretPlaceholder')}
-                  className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
-                />
                 <button
-                  onClick={() => handleSaveSetting('feishu_webhook_secret')}
-                  className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
+                  onClick={handleFeishuTest}
+                  disabled={feishuTestMutation.isPending}
+                  className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
                 >
-                  {t('page.settings.save')}
+                  {feishuTestMutation.isPending ? t('page.settings.feishuTestSending') : t('page.settings.feishuTest')}
                 </button>
               </div>
-
-              <button
-                onClick={handleFeishuTest}
-                disabled={feishuTestMutation.isPending}
-                className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
-              >
-                {feishuTestMutation.isPending ? t('page.settings.feishuTestSending') : t('page.settings.feishuTest')}
-              </button>
             </div>
           </div>
 
@@ -522,85 +547,62 @@ export default function SettingsPage() {
             </div>
 
             <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <select
-                  value={effectiveMediaServerType}
-                  onChange={e => setFormValues(prev => ({ ...prev, media_server_type: e.target.value }))}
-                  className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface focus:ring-1 focus:ring-primary/40 outline-none transition-all cursor-pointer"
-                >
-                  {MEDIA_SERVER_TYPES.map(type => (
-                    <option key={type} value={type}>
-                      {t(`page.settings.mediaServerType.${type}`)}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => handleSaveSetting('media_server_type')}
-                  className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
-                >
-                  {t('page.settings.save')}
-                </button>
-              </div>
+              <select
+                value={effectiveMediaServerType}
+                onChange={e => setFormValues(prev => ({ ...prev, media_server_type: e.target.value }))}
+                className="w-full bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface focus:ring-1 focus:ring-primary/40 outline-none transition-all cursor-pointer"
+              >
+                {MEDIA_SERVER_TYPES.map(type => (
+                  <option key={type} value={type}>
+                    {t(`page.settings.mediaServerType.${type}`)}
+                  </option>
+                ))}
+              </select>
 
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={formValues['media_server_base_url'] ?? mediaServerBaseUrl}
-                  onChange={e => setFormValues(prev => ({ ...prev, media_server_base_url: e.target.value }))}
-                  placeholder={t('page.settings.mediaServerBaseUrlPlaceholder')}
-                  className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
-                />
-                <button
-                  onClick={() => handleSaveSetting('media_server_base_url')}
-                  className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
-                >
-                  {t('page.settings.save')}
-                </button>
-              </div>
+              <input
+                type="text"
+                value={formValues['media_server_base_url'] ?? mediaServerBaseUrl}
+                onChange={e => setFormValues(prev => ({ ...prev, media_server_base_url: e.target.value }))}
+                placeholder={t('page.settings.mediaServerBaseUrlPlaceholder')}
+                className="w-full bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
+              />
 
-              <div className="flex items-center gap-2">
-                <input
-                  type="password"
-                  value={formValues['media_server_api_key'] ?? mediaServerApiKey}
-                  onChange={e => setFormValues(prev => ({ ...prev, media_server_api_key: e.target.value }))}
-                  placeholder={t('page.settings.mediaServerApiKeyPlaceholder')}
-                  className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
-                />
-                <button
-                  onClick={() => handleSaveSetting('media_server_api_key')}
-                  className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
-                >
-                  {t('page.settings.save')}
-                </button>
-              </div>
+              <input
+                type="password"
+                value={formValues['media_server_api_key'] ?? mediaServerApiKey}
+                onChange={e => setFormValues(prev => ({ ...prev, media_server_api_key: e.target.value }))}
+                placeholder={t('page.settings.mediaServerApiKeyPlaceholder')}
+                className="w-full bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
+              />
 
               {effectiveMediaServerType !== 'plex' && (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={formValues['media_server_user_id'] ?? mediaServerUserId}
-                    onChange={e => setFormValues(prev => ({ ...prev, media_server_user_id: e.target.value }))}
-                    placeholder={t('page.settings.mediaServerUserIdPlaceholder')}
-                    className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
-                  />
-                  <button
-                    onClick={() => handleSaveSetting('media_server_user_id')}
-                    className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
-                  >
-                    {t('page.settings.save')}
-                  </button>
-                </div>
+                <input
+                  type="text"
+                  value={formValues['media_server_user_id'] ?? mediaServerUserId}
+                  onChange={e => setFormValues(prev => ({ ...prev, media_server_user_id: e.target.value }))}
+                  placeholder={t('page.settings.mediaServerUserIdPlaceholder')}
+                  className="w-full bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
+                />
               )}
 
-              <button
-                onClick={handleMediaServerTest}
-                disabled={mediaServerTestMutation.isPending}
-                className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
-              >
-                {mediaServerTestMutation.isPending
-                  ? t('page.settings.mediaServerTesting')
-                  : t('page.settings.mediaServerTest')}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSaveMediaServerSettings}
+                  disabled={updateSettingMutation.isPending}
+                  className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
+                >
+                  {t('page.settings.save')}
+                </button>
+                <button
+                  onClick={handleMediaServerTest}
+                  disabled={mediaServerTestMutation.isPending}
+                  className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
+                >
+                  {mediaServerTestMutation.isPending
+                    ? t('page.settings.mediaServerTesting')
+                    : t('page.settings.mediaServerTest')}
+                </button>
+              </div>
             </div>
           </div>
         </section>
