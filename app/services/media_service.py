@@ -5,10 +5,11 @@ from typing import Any, List, Optional, Set, Tuple
 
 from sqlmodel import Session, col, or_, select
 
+from ..core.system_load import ensure_system_not_busy
 from ..db.models import MediaPath, ScannedFile
 from ..db.session import session_scope
 from .auto_match_workflow import AutoMatchWorkflow, SeasonMatchWorkflow, normalize_media_title
-from .errors import ConflictError
+from .errors import ConflictError, SystemBusyError
 from .media_scan_pipeline import MediaScanPipeline
 from .subtitle_align_service import SubtitleAlignService
 from .subtitle_inspection_service import SubtitleInspectionService
@@ -347,11 +348,19 @@ class MediaService:
         return [file_record.id for file_record in files if file_record.id is not None]
 
     @staticmethod
-    async def run_series_align_process(title: str) -> None:
+    async def run_series_align_process(title: str, force: bool = False) -> None:
         """对指定剧集全部视频文件的所有关联字幕顺序执行音轨对齐（后台任务）。
 
         单集/单条字幕失败仅记录日志，不中断整体流程；对齐前自动备份 .orig。
+        系统资源紧张时（force=False）拒绝启动并记录日志。
         """
+        if not force:
+            try:
+                ensure_system_not_busy()
+            except SystemBusyError as exc:
+                logger.warning("剧集批量对齐被拒绝: title=%s, reason=%s", title, exc)
+                return
+
         global_task_status.aligning_series.add(title)
         stats = {"aligned": 0, "failed": 0, "skipped_files": 0}
         try:
@@ -378,10 +387,13 @@ class MediaService:
                     for subtitle_name in subtitle_names:
                         try:
                             with session_scope() as session:
+                                # 批量入口已做资源守卫，逐条执行不再重复检查，
+                                # 避免跑到一半系统变忙导致剩余条目批量失败。
                                 await SubtitleAlignService.align_media_subtitle(
                                     session=session,
                                     file_id=file_id,
                                     filename=subtitle_name,
+                                    force=True,
                                 )
                             stats["aligned"] += 1
                         except Exception as exc:

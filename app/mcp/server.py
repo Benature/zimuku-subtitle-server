@@ -17,6 +17,7 @@ from starlette.routing import Mount, Route
 from ..core.subtitle_languages import SUBTITLE_LANGUAGES
 from ..db.models import SubtitleTask
 from ..db.session import create_db_and_tables, engine
+from ..services.errors import SystemBusyError
 from ..services.media_service import MediaService, global_task_status
 from ..services.search_service import SearchService
 from ..services.settings_service import SettingsService
@@ -345,6 +346,7 @@ def _media_tools() -> list[types.Tool]:
             description=(
                 "手动触发指定媒体文件字幕的音轨对齐（基于 alass 引擎分析视频音轨并校正字幕时间轴）。"
                 "对齐前会自动备份原字幕为 .orig 文件，可通过 restore 方式还原。"
+                "执行前会检查系统负载，资源紧张时默认拒绝执行（可用 force=true 强制）。"
             ),
             inputSchema={
                 "type": "object",
@@ -361,6 +363,11 @@ def _media_tools() -> list[types.Tool]:
                         "minimum": 0,
                         "maximum": 1000,
                     },
+                    "force": {
+                        "type": "boolean",
+                        "description": "系统资源紧张时仍强制执行，跳过负载守卫（默认 false）",
+                        "default": False,
+                    },
                 },
                 "required": ["file_id"],
             },
@@ -370,6 +377,7 @@ def _media_tools() -> list[types.Tool]:
             description=(
                 "检查指定媒体文件的字幕与音轨是否已对齐，返回 aligned 判定结果及最大/平均时间偏移量（毫秒）。"
                 "该操作不会修改字幕文件。"
+                "执行前会检查系统负载，资源紧张时默认拒绝执行（可用 force=true 强制）。"
             ),
             inputSchema={
                 "type": "object",
@@ -385,6 +393,11 @@ def _media_tools() -> list[types.Tool]:
                         "default": 100.0,
                         "minimum": 0,
                         "maximum": 60000,
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": "系统资源紧张时仍强制执行，跳过负载守卫（默认 false）",
+                        "default": False,
                     },
                 },
                 "required": ["file_id"],
@@ -838,6 +851,7 @@ async def _handle_media_tool(name: str, arguments: dict[str, Any]) -> List[types
             return _missing_fields("file_id")
         filename = arguments.get("filename")
         split_penalty = float(arguments.get("split_penalty", 7.0))
+        force = bool(arguments.get("force", False))
         try:
             with Session(engine) as session:
                 result = await SubtitleAlignService.align_media_subtitle(
@@ -845,8 +859,11 @@ async def _handle_media_tool(name: str, arguments: dict[str, Any]) -> List[types
                     file_id=file_id,
                     filename=filename,
                     split_penalty=split_penalty,
+                    force=force,
                 )
             return _success("音轨对齐完成：", result.model_dump())
+        except SystemBusyError as exc:
+            return _error(f"音轨对齐被拒绝: {exc}")
         except Exception as exc:
             logger.exception("音轨对齐发生未预期错误")
             return _error(f"音轨对齐失败: {exc}")
@@ -857,6 +874,7 @@ async def _handle_media_tool(name: str, arguments: dict[str, Any]) -> List[types
             return _missing_fields("file_id")
         filename = arguments.get("filename")
         threshold_ms = float(arguments.get("threshold_ms", 100.0))
+        force = bool(arguments.get("force", False))
         try:
             with Session(engine) as session:
                 result = await SubtitleAlignService.check_media_subtitle_alignment(
@@ -864,8 +882,11 @@ async def _handle_media_tool(name: str, arguments: dict[str, Any]) -> List[types
                     file_id=file_id,
                     filename=filename,
                     threshold_ms=threshold_ms,
+                    force=force,
                 )
             return _success("音轨对齐检查结果：", result.model_dump())
+        except SystemBusyError as exc:
+            return _error(f"音轨对齐检查被拒绝: {exc}")
         except Exception as exc:
             logger.exception("音轨对齐检查发生未预期错误")
             return _error(f"音轨对齐检查失败: {exc}")

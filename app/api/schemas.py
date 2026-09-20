@@ -49,6 +49,7 @@ class SeasonMatchRequest(BaseModel):
 
 class SeriesAlignRequest(BaseModel):
     title: str = Field(min_length=1)
+    force: bool = Field(default=False, description="系统资源紧张时仍强制执行，跳过负载守卫")
 
 
 class WorkAllowNoSubtitleRequest(BaseModel):
@@ -177,6 +178,7 @@ class AlignerStatusResponse(BaseModel):
 class SubtitleAlignRequest(BaseModel):
     filename: Optional[str] = None
     split_penalty: float = Field(default=7.0, ge=0.0, le=1000.0)
+    force: bool = Field(default=False, description="系统资源紧张时仍强制执行，跳过负载守卫")
 
 
 class SubtitleRestoreRequest(BaseModel):
@@ -194,6 +196,7 @@ class SubtitleAlignResponse(StatusResponse):
 class SubtitleAlignmentCheckRequest(BaseModel):
     filename: Optional[str] = None
     threshold_ms: float = Field(default=100.0, ge=0.0, le=60000.0)
+    force: bool = Field(default=False, description="系统资源紧张时仍强制执行，跳过负载守卫")
 
 
 class SubtitleAlignmentCheckResponse(StatusResponse):

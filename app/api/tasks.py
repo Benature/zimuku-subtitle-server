@@ -161,10 +161,12 @@ async def align_task_subtitle(
     """对下载完成的任务字幕执行音轨对齐"""
     try:
         split_penalty = payload.split_penalty if payload else 7.0
+        force = payload.force if payload else False
         return await SubtitleAlignService.align_task_subtitle(
             session=session,
             task_id=task_id,
             split_penalty=split_penalty,
+            force=force,
         )
     except Exception as exc:
         raise_for_service_error(exc)

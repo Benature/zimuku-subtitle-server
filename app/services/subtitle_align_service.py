@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 
 from ..api.schemas import AlignerStatusResponse, SubtitleAlignmentCheckResponse, SubtitleAlignResponse
 from ..core.aligner import SubtitleAligner
+from ..core.system_load import ensure_system_not_busy, evaluate_system_load, read_system_load
 from ..db.models import ScannedFile, SubtitleTask
 from .subtitle_inspection_service import (
     ALIGNMENT_STATUS_ALIGNED,
@@ -92,7 +93,11 @@ class SubtitleAlignService:
         file_id: int,
         filename: Optional[str] = None,
         split_penalty: float = 7.0,
+        force: bool = False,
     ) -> SubtitleAlignResponse:
+        if not force:
+            ensure_system_not_busy()
+
         media, video_path, target_sub = cls._resolve_video_and_subtitle(session, file_id, filename)
 
         sub_suffix = target_sub.suffix.lower()
@@ -137,7 +142,11 @@ class SubtitleAlignService:
         file_id: int,
         filename: Optional[str] = None,
         threshold_ms: float = 100.0,
+        force: bool = False,
     ) -> SubtitleAlignmentCheckResponse:
+        if not force:
+            ensure_system_not_busy()
+
         media, video_path, target_sub = cls._resolve_video_and_subtitle(session, file_id, filename)
 
         sub_suffix = target_sub.suffix.lower()
@@ -231,6 +240,11 @@ class SubtitleAlignService:
             logger.info("task %s: skip auto-align, no associated video file", task.id)
             return False
 
+        busy_reason = evaluate_system_load(read_system_load())
+        if busy_reason:
+            logger.info("task %s: skip auto-align, system busy: %s", task.id, busy_reason)
+            return False
+
         try:
             cls._backup_original(sub_path)
             await SubtitleAligner.align(
@@ -255,6 +269,7 @@ class SubtitleAlignService:
         session: Session,
         task_id: int,
         split_penalty: float = 7.0,
+        force: bool = False,
     ) -> SubtitleAlignResponse:
         task = session.get(SubtitleTask, task_id)
         if task is None:
@@ -270,6 +285,7 @@ class SubtitleAlignService:
                 file_id=task.file_id,
                 filename=Path(task.save_path).name if task.save_path else None,
                 split_penalty=split_penalty,
+                force=force,
             )
 
         if task.target_path:
@@ -280,9 +296,13 @@ class SubtitleAlignService:
                     file_id=media.id,
                     filename=Path(task.save_path).name if task.save_path else None,
                     split_penalty=split_penalty,
+                    force=force,
                 )
 
         # 兜底：直接依据任务保存路径与目标视频路径对齐
+        if not force:
+            ensure_system_not_busy()
+
         if not task.save_path or not Path(task.save_path).is_file():
             raise LookupError("任务缺少有效的字幕文件保存路径")
 

@@ -10,6 +10,7 @@ from app.core.config import ConfigManager, SettingKey
 from app.db.models import MediaPath, ScannedFile, Setting, SubtitleAlignmentState, SubtitleTask
 from app.db.session import create_db_and_tables, engine
 from app.main import app
+from app.services.errors import SystemBusyError
 from app.services.media_service import MediaService, global_task_status
 from app.services.subtitle_align_service import SubtitleAlignService
 from app.services.subtitle_inspection_service import (
@@ -864,7 +865,7 @@ def test_series_align_api_trigger():
         assert data["status"] == "ok"
         assert data["task_kind"] == "series_align"
         assert data["target"] == "Show D"
-        mock_run.assert_called_once_with("Show D")
+        mock_run.assert_called_once_with("Show D", False)
 
         # 兼容 query 参数形式
         res = client.post("/media/series/align-subtitles?title=Show%20E")
@@ -875,3 +876,170 @@ def test_series_align_api_trigger():
 def test_series_align_api_requires_title():
     res = client.post("/media/series/align-subtitles", json={})
     assert res.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_align_media_subtitle_rejected_when_system_busy(tmp_path: Path):
+    video_path = tmp_path / "busy.mp4"
+    video_path.write_bytes(b"video")
+    sub_path = tmp_path / "busy.srt"
+    sub_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nBusy\n", encoding="utf-8")
+
+    with Session(engine) as session:
+        path_record = MediaPath(path=str(tmp_path), type="movie")
+        session.add(path_record)
+        session.commit()
+        session.refresh(path_record)
+        media = ScannedFile(
+            path_id=path_record.id,
+            type="movie",
+            file_path=str(video_path),
+            filename=video_path.name,
+            has_subtitle=True,
+        )
+        session.add(media)
+        session.commit()
+        session.refresh(media)
+        file_id = media.id
+
+    with patch(
+        "app.services.subtitle_align_service.ensure_system_not_busy",
+        side_effect=SystemBusyError("系统资源紧张"),
+    ):
+        # 默认（force=False）拒绝执行
+        with Session(engine) as session:
+            with pytest.raises(SystemBusyError):
+                await SubtitleAlignService.align_media_subtitle(session, file_id)
+
+        # 对齐检查同样被拒绝
+        with Session(engine) as session:
+            with pytest.raises(SystemBusyError):
+                await SubtitleAlignService.check_media_subtitle_alignment(session, file_id)
+
+    # force=True 跳过守卫，正常执行
+    async def fake_align(reference_path, subtitle_path, output_path, split_penalty=7.0):
+        output_path.write_text("1\n00:00:02,000 --> 00:00:03,000\nAligned\n", encoding="utf-8")
+
+    with (
+        patch(
+            "app.services.subtitle_align_service.ensure_system_not_busy",
+            side_effect=SystemBusyError("系统资源紧张"),
+        ),
+        patch.object(SubtitleAligner, "align", side_effect=fake_align),
+    ):
+        with Session(engine) as session:
+            result = await SubtitleAlignService.align_media_subtitle(session, file_id, force=True)
+        assert result.status == "ok"
+        assert "Aligned" in sub_path.read_text(encoding="utf-8")
+
+
+def test_align_api_returns_503_when_system_busy(tmp_path: Path):
+    video_path = tmp_path / "api_busy.mp4"
+    video_path.write_bytes(b"video")
+    (tmp_path / "api_busy.srt").write_text("1\n00:00:01,000 --> 00:00:02,000\nX\n", encoding="utf-8")
+
+    with Session(engine) as session:
+        path_record = MediaPath(path=str(tmp_path), type="movie")
+        session.add(path_record)
+        session.commit()
+        session.refresh(path_record)
+        media = ScannedFile(
+            path_id=path_record.id,
+            type="movie",
+            file_path=str(video_path),
+            filename=video_path.name,
+            has_subtitle=True,
+        )
+        session.add(media)
+        session.commit()
+        session.refresh(media)
+        file_id = media.id
+
+    with patch(
+        "app.services.subtitle_align_service.ensure_system_not_busy",
+        side_effect=SystemBusyError("系统资源紧张"),
+    ):
+        res = client.post(f"/media/files/{file_id}/align-subtitle", json={})
+        assert res.status_code == 503
+        assert "系统资源紧张" in res.json()["detail"]
+
+        res = client.post(f"/media/files/{file_id}/check-subtitle-alignment", json={})
+        assert res.status_code == 503
+
+    # 批量剧集对齐：启动前守卫，繁忙返回 503 且不创建后台任务
+    with (
+        patch(
+            "app.api.media.ensure_system_not_busy",
+            side_effect=SystemBusyError("系统资源紧张"),
+        ),
+        patch("app.api.media.MediaService.run_series_align_process", new=AsyncMock(return_value=None)) as mock_run,
+    ):
+        res = client.post("/media/series/align-subtitles", json={"title": "Busy Show"})
+        assert res.status_code == 503
+        mock_run.assert_not_called()
+
+        # force=true 跳过守卫，正常触发
+        res = client.post("/media/series/align-subtitles", json={"title": "Busy Show", "force": True})
+        assert res.status_code == 200
+        mock_run.assert_called_once_with("Busy Show", True)
+
+
+@pytest.mark.anyio
+async def test_run_series_align_process_rejected_when_system_busy(tmp_path: Path):
+    series_dir = tmp_path / "series_busy"
+    series_dir.mkdir()
+    file_id = _create_series_file(series_dir, "Busy Series", 1, 1, ["Busy Series.S01E01.zh.srt"])
+
+    with patch(
+        "app.services.media_service.ensure_system_not_busy",
+        side_effect=SystemBusyError("系统资源紧张"),
+    ):
+        await MediaService.run_series_align_process("Busy Series")
+
+    # 任务被拒绝：不进入对齐状态、字幕未被修改
+    assert "Busy Series" not in global_task_status.aligning_series
+    assert file_id not in global_task_status.aligning_files
+    sub_path = series_dir / "Busy Series.S01E01.zh.srt"
+    assert "Line" in sub_path.read_text(encoding="utf-8")
+
+    # force=True 时即使繁忙也执行
+    async def fake_align(reference_path, subtitle_path, output_path, split_penalty=7.0):
+        output_path.write_text("1\n00:00:02,000 --> 00:00:03,000\nAligned\n", encoding="utf-8")
+
+    with (
+        patch(
+            "app.services.media_service.ensure_system_not_busy",
+            side_effect=SystemBusyError("系统资源紧张"),
+        ),
+        patch.object(SubtitleAligner, "align", side_effect=fake_align),
+    ):
+        await MediaService.run_series_align_process("Busy Series", force=True)
+
+    assert "Aligned" in sub_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.anyio
+async def test_auto_align_skipped_when_system_busy(tmp_path: Path):
+    video_path = tmp_path / "auto_busy.mp4"
+    video_path.write_bytes(b"video")
+    sub_path = tmp_path / "auto_busy.srt"
+    sub_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nAuto\n", encoding="utf-8")
+
+    task = SubtitleTask(
+        title="auto-busy",
+        source_url="http://example.com/sub",
+        status="completed",
+        save_path=str(sub_path),
+        target_path=str(video_path),
+    )
+
+    with patch(
+        "app.services.subtitle_align_service.evaluate_system_load",
+        return_value="CPU 负载过高（测试）",
+    ):
+        aligned = await SubtitleAlignService.auto_align_for_task(task, str(sub_path))
+
+    # 系统繁忙时自动对齐直接跳过，不修改字幕、不创建备份
+    assert aligned is False
+    assert "Auto" in sub_path.read_text(encoding="utf-8")
+    assert not (tmp_path / "auto_busy.orig.srt").exists()

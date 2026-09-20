@@ -4,6 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Body, Depends, Query
 from fastapi.responses import FileResponse
 from sqlmodel import Session
 
+from ..core.system_load import ensure_system_not_busy
 from ..db.models import MediaPath, ScannedFile, SubtitleTask
 from ..db.session import get_session
 from ..services.media_service import MediaService, global_task_status
@@ -218,7 +219,13 @@ async def align_series_subtitles(
         request = payload or SeriesAlignRequest(title=title or "")
     except Exception as exc:
         raise_for_service_error(exc)
-    background_tasks.add_task(MediaService.run_series_align_process, request.title)
+    if not request.force:
+        # 启动前做资源守卫，系统繁忙直接 503，避免批量任务白跑
+        try:
+            ensure_system_not_busy()
+        except Exception as exc:
+            raise_for_service_error(exc)
+    background_tasks.add_task(MediaService.run_series_align_process, request.title, request.force)
     return _build_trigger_response(
         message=f"Subtitle alignment process for series '{request.title}' started",
         task_kind="series_align",
@@ -337,11 +344,13 @@ async def align_media_subtitle(
     try:
         filename = payload.filename if payload else None
         split_penalty = payload.split_penalty if payload else 7.0
+        force = payload.force if payload else False
         return await SubtitleAlignService.align_media_subtitle(
             session=session,
             file_id=file_id,
             filename=filename,
             split_penalty=split_penalty,
+            force=force,
         )
     except Exception as exc:
         raise_for_service_error(exc)
@@ -357,11 +366,13 @@ async def check_media_subtitle_alignment(
     try:
         filename = payload.filename if payload else None
         threshold_ms = payload.threshold_ms if payload else 100.0
+        force = payload.force if payload else False
         return await SubtitleAlignService.check_media_subtitle_alignment(
             session=session,
             file_id=file_id,
             filename=filename,
             threshold_ms=threshold_ms,
+            force=force,
         )
     except Exception as exc:
         raise_for_service_error(exc)

@@ -2,7 +2,7 @@ from typing import NoReturn
 
 from fastapi import HTTPException
 
-from ..services.errors import ConflictError, ExternalServiceError
+from ..services.errors import ConflictError, ExternalServiceError, SystemBusyError
 
 
 def raise_for_service_error(exc: Exception) -> NoReturn:
@@ -12,6 +12,8 @@ def raise_for_service_error(exc: Exception) -> NoReturn:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if isinstance(exc, LookupError):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if isinstance(exc, SystemBusyError):
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     if isinstance(exc, ValueError):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if isinstance(exc, ExternalServiceError):

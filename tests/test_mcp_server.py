@@ -245,3 +245,53 @@ async def test_mcp_scan_and_retry_tools():
     assert '"matched": true' in auto_match[0].text
     assert '"title": "Lost"' in season_match[0].text
     assert "任务已重试" in retry[0].text
+
+
+@pytest.mark.anyio
+async def test_mcp_align_subtitle_force_parameter():
+    """验证 align_subtitle / check_subtitle_alignment 的 force 参数透传与繁忙拒绝。"""
+    from app.services.errors import SystemBusyError
+
+    align_result = type(
+        "AlignResult",
+        (),
+        {"model_dump": lambda self: {"status": "ok", "subtitle_filename": "a.srt"}},
+    )()
+    check_result = type(
+        "CheckResult",
+        (),
+        {"model_dump": lambda self: {"status": "ok", "aligned": True}},
+    )()
+
+    with (
+        patch(
+            "app.mcp.server.SubtitleAlignService.align_media_subtitle",
+            new=AsyncMock(return_value=align_result),
+        ) as mock_align,
+        patch(
+            "app.mcp.server.SubtitleAlignService.check_media_subtitle_alignment",
+            new=AsyncMock(return_value=check_result),
+        ) as mock_check,
+    ):
+        # 默认 force=false
+        await handle_call_tool("align_subtitle", {"file_id": 1})
+        assert mock_align.call_args.kwargs["force"] is False
+
+        # 显式 force=true 透传
+        await handle_call_tool("align_subtitle", {"file_id": 1, "force": True})
+        assert mock_align.call_args.kwargs["force"] is True
+
+        await handle_call_tool("check_subtitle_alignment", {"file_id": 1})
+        assert mock_check.call_args.kwargs["force"] is False
+
+        await handle_call_tool("check_subtitle_alignment", {"file_id": 1, "force": True})
+        assert mock_check.call_args.kwargs["force"] is True
+
+    # 系统繁忙且未 force 时返回友好错误
+    with patch(
+        "app.mcp.server.SubtitleAlignService.align_media_subtitle",
+        new=AsyncMock(side_effect=SystemBusyError("系统资源紧张")),
+    ):
+        result = await handle_call_tool("align_subtitle", {"file_id": 1})
+        assert "拒绝" in result[0].text
+        assert "系统资源紧张" in result[0].text
