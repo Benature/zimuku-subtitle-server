@@ -60,7 +60,7 @@ npm run lint
   - `archive.py`（`app/core/archive/`）- ZIP/7z/RAR 压缩包解压，解决文件名乱码（CP437 → GBK）；RAR 直接调用系统 bsdtar（libarchive）解压
   - `ocr.py` - 轻量级像素采样 OCR 引擎，用于验证码识别
   - `aligner.py` - 字幕音轨对齐引擎，封装 alass/ffsubsync 调用、ffmpeg 依赖检测与 UTF-8 编码规整
-  - `notifier.py` - 飞书自定义机器人通知（支持加签 secret），发送失败仅记录日志；配置自建应用凭据（`feishu_app_id` / `feishu_app_secret`）后，可先将封面图上传飞书换取 image_key，再以卡片消息内嵌每部作品的横屏封面，上传/卡片发送失败自动回退纯文本
+  - `notifier.py` - 飞书自定义机器人通知（支持加签 secret），发送失败仅记录日志；配置自建应用凭据（`feishu_app_id` / `feishu_app_secret`）后，可先将封面图上传飞书换取 image_key，再以卡片消息内嵌每部作品的横屏封面，上传/卡片发送失败自动回退纯文本；测试通知在配置凭据后附带程序内置生成的 16:9 测试封面，用于验证 token → 上传 → 卡片完整链路
   - `mediaserver.py` - 媒体服务器客户端（Jellyfin/Emby/Plex），拉取用户未观看索引（`UnwatchedIndex`），供批量补全排序使用；Jellyfin 走 `Authorization: MediaBrowser Token="..."`（兼容 12+），Emby 走 `X-Emby-Token`，Plex 走 `X-Plex-Token`，均不使用 `?api_key=` 查询参数；失败仅记录日志并返回 None；`build_media_server_client` 对旧版 `jellyfin_*` 设置自动兼容回退；`fetch_backdrops(titles)` 按规范化标题拉取各作品横屏封面（Jellyfin/Emby 优先 Backdrop、缺失回退 Primary，Plex 用条目 `art`），供飞书通知内嵌封面使用
   - `config.py` - 配置管理
 - **`app/db/`** - SQLModel 数据库模型与会话管理

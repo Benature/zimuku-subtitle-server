@@ -2,7 +2,9 @@ import base64
 import hashlib
 import hmac
 import logging
+import struct
 import time
+import zlib
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -14,6 +16,27 @@ logger = logging.getLogger(__name__)
 
 MAX_FAILURE_ITEMS = 10
 FEISHU_OPEN_API_BASE = "https://open.feishu.cn/open-apis"
+
+
+def _build_test_cover() -> bytes:
+    """生成 480x270 横屏测试封面（PNG），测试通知用它验证图片上传链路，无需读取外部文件。"""
+    width, height = 480, 270
+    rows = []
+    for y in range(height):
+        ratio = y / height
+        pixel = bytes([int(20 + 40 * ratio), int(80 + 60 * ratio), int(160 + 60 * ratio)])
+        rows.append(b"\x00" + pixel * width)
+    raw = b"".join(rows)
+
+    def _chunk(tag: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data))
+
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + _chunk(b"IDAT", zlib.compress(raw, 9))
+        + _chunk(b"IEND", b"")
+    )
 
 
 @dataclass
@@ -193,4 +216,27 @@ class FeishuNotifier:
         return await self._post_webhook({"msg_type": "interactive", "card": card})
 
     async def send_test(self) -> bool:
-        return await self.send_text("【Zimuku Subtitle Server】飞书通知测试消息")
+        """发送测试通知；配置了自建应用凭据时附带一张测试封面，验证 token → 上传 → 卡片完整链路。"""
+        if not self.image_upload_configured:
+            return await self.send_text("【Zimuku Subtitle Server】飞书通知测试消息")
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                token = await self._get_tenant_access_token(client)
+                image_key = await self._upload_image(client, token, _build_test_cover())
+        except Exception as exc:
+            logger.error("测试封面上传失败，改发纯文本测试通知: %s", exc)
+            return await self.send_text(
+                "【Zimuku Subtitle Server】飞书通知测试消息（封面上传失败，请检查自建应用凭据与 im:resource 权限）"
+            )
+        card = {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "template": "blue",
+                "title": {"tag": "plain_text", "content": "【Zimuku Subtitle Server】飞书通知测试"},
+            },
+            "elements": [
+                {"tag": "markdown", "content": "自建应用凭据与图片上传链路验证成功，定时补全通知将内嵌剧集横屏封面。"},
+                {"tag": "img", "img_key": image_key, "alt": {"tag": "plain_text", "content": "测试封面"}},
+            ],
+        }
+        return await self._post_webhook({"msg_type": "interactive", "card": card})

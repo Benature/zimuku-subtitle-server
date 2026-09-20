@@ -197,6 +197,52 @@ async def test_scheduled_report_falls_back_to_text_when_upload_fails():
 
 
 @pytest.mark.anyio
+async def test_send_test_uploads_cover_and_sends_card_when_app_credentials_set():
+    client_mock, uploads, webhook_payloads = _card_client_mock()
+
+    with patch("app.core.notifier.httpx.AsyncClient") as client_cls:
+        client_cls.return_value.__aenter__.return_value = client_mock
+        notifier = FeishuNotifier(
+            webhook_url="https://open.feishu.cn/hook/xxx",
+            secret="",
+            app_id="cli_x",
+            app_secret="sec_x",
+        )
+        delivered = await notifier.send_test()
+
+    assert delivered is True
+    assert len(uploads) == 1
+    # 上传的是生成的 480x270 PNG 测试封面
+    cover = uploads[0]["files"]["image"][1]
+    assert cover.startswith(b"\x89PNG\r\n\x1a\n")
+    payload = webhook_payloads[0]
+    assert payload["msg_type"] == "interactive"
+    img_elements = [e for e in payload["card"]["elements"] if e["tag"] == "img"]
+    assert len(img_elements) == 1
+
+
+@pytest.mark.anyio
+async def test_send_test_falls_back_to_text_when_cover_upload_fails():
+    client_mock = AsyncMock()
+    client_mock.post.side_effect = RuntimeError("network down")
+    sent: list[str] = []
+
+    with patch("app.core.notifier.httpx.AsyncClient") as client_cls:
+        client_cls.return_value.__aenter__.return_value = client_mock
+        notifier = FeishuNotifier(
+            webhook_url="https://open.feishu.cn/hook/xxx",
+            secret="",
+            app_id="cli_x",
+            app_secret="sec_x",
+        )
+        notifier.send_text = AsyncMock(side_effect=lambda content: sent.append(content) or True)
+        delivered = await notifier.send_test()
+
+    assert delivered is True
+    assert "封面上传失败" in sent[0]
+
+
+@pytest.mark.anyio
 async def test_scheduled_report_falls_back_to_text_when_all_uploads_fail():
     client_mock = AsyncMock()
 
