@@ -8,6 +8,7 @@ import {
   useRetryTaskMutation,
   useTasksQuery,
 } from '../hooks/queries';
+import { useToast } from '../hooks/useToast';
 
 function TaskSkeleton(): React.JSX.Element {
   return (
@@ -71,6 +72,7 @@ function getTaskStatusDotClass(status: Task['status']): string {
 
 export default function TasksPage() {
   const { t } = useTranslation();
+  const { showToast } = useToast();
   const tasksQuery = useTasksQuery({
     refetchInterval: 3000,
   });
@@ -85,11 +87,11 @@ export default function TasksPage() {
     setAligningTaskId(id);
     try {
       const res = await alignTaskSubtitle(id);
-      alert(res.message || t('subtitles.alignSuccess'));
+      showToast(res.message || t('subtitles.alignSuccess'), 'success');
       await tasksQuery.refetch();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      alert(t('mediaConfig.triggerFailed') + ': ' + msg);
+      showToast(t('mediaConfig.triggerFailed') + ': ' + msg, 'error');
     } finally {
       setAligningTaskId(null);
     }

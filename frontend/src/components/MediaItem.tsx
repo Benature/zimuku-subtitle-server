@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { autoMatchFile, type ScannedFile, type TaskStatus } from '../api';
 import { getMediaTitle } from '../lib/mediaUtils';
 import { SubtitleManagerModal } from './SubtitleManagerModal';
+import { useToast } from '../hooks/useToast';
 
 interface MediaItemProps {
   file: ScannedFile;
@@ -74,6 +75,7 @@ export function MediaItem({
   setMatchingFileOptimistic,
 }: MediaItemProps): React.JSX.Element {
   const { t } = useTranslation();
+  const { showToast } = useToast();
   const navigate = useNavigate();
   const [manageModalOpen, setManageModalOpen] = useState(false);
   const isMatching = status.matching_files.includes(file.id);
@@ -97,7 +99,7 @@ export function MediaItem({
       await autoMatchFile(file.id);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      alert(t('mediaConfig.triggerFailed') + ': ' + message);
+      showToast(t('mediaConfig.triggerFailed') + ': ' + message, 'error');
       if (setMatchingFileOptimistic) {
         setMatchingFileOptimistic(file.id, false);
       }

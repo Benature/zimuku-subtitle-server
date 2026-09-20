@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { changeLanguage } from '../i18n';
 import { supportedLanguages } from '../i18n/config';
 import { useMediaPolling } from '../hooks/useMediaPolling';
+import { useToast } from '../hooks/useToast';
 import {
   useAddMediaPathMutation,
   useDeleteMediaPathMutation,
@@ -29,6 +30,7 @@ const DEDICATED_SETTING_KEYS = new Set([
 
 export default function SettingsPage() {
   const { t, i18n } = useTranslation();
+  const { showToast } = useToast();
   const [formValues, setFormValues] = useState<Record<string, string>>({});
 
   const { paths: moviePaths, fetchData: fetchMoviePaths, status, setIsScanningOptimistic } =
@@ -70,27 +72,27 @@ export default function SettingsPage() {
       await scheduleStatusQuery.refetch();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      alert(t('page.settings.saveFailed') + ': ' + message);
+      showToast(t('page.settings.saveFailed') + ': ' + message, 'error');
     }
   };
 
   const handleRunScheduleNow = async (): Promise<void> => {
     try {
       await runScheduleNowMutation.mutateAsync();
-      alert(t('page.settings.scheduleRunStarted'));
+      showToast(t('page.settings.scheduleRunStarted'), 'success');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      alert(t('page.settings.scheduleRunFailed') + ': ' + message);
+      showToast(t('page.settings.scheduleRunFailed') + ': ' + message, 'error');
     }
   };
 
   const handleFeishuTest = async (): Promise<void> => {
     try {
       const result = await feishuTestMutation.mutateAsync();
-      alert(result.message);
+      showToast(result.message, 'success');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      alert(t('page.settings.saveFailed') + ': ' + message);
+      showToast(t('page.settings.saveFailed') + ': ' + message, 'error');
     }
   };
 
@@ -104,7 +106,7 @@ export default function SettingsPage() {
       await settingsQuery.refetch();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      alert(t('page.settings.saveFailed') + ': ' + message);
+      showToast(t('page.settings.saveFailed') + ': ' + message, 'error');
     }
   };
 
@@ -131,10 +133,10 @@ export default function SettingsPage() {
         value: newValue,
         description: setting?.description,
       });
-      alert(t('page.settings.saved'));
+      showToast(t('page.settings.saved'), 'success');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      alert(t('page.settings.saveFailed') + ': ' + message);
+      showToast(t('page.settings.saveFailed') + ': ' + message, 'error');
     }
   };
 
@@ -155,7 +157,7 @@ export default function SettingsPage() {
       await refreshMediaPaths(type);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      alert(t('mediaConfig.addFailed') + ': ' + message);
+      showToast(t('mediaConfig.addFailed') + ': ' + message, 'error');
     }
   };
 
@@ -172,7 +174,7 @@ export default function SettingsPage() {
       await triggerMediaMatchMutation.mutateAsync(type);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      alert(t('mediaConfig.triggerFailed') + ': ' + message);
+      showToast(t('mediaConfig.triggerFailed') + ': ' + message, 'error');
     }
   };
 

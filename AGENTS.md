@@ -74,7 +74,8 @@ npm run lint
 - 页面组件：SearchPage、MoviesPage、SeriesPage、TasksPage、SettingsPage
 - 共享组件：MediaConfigPanel、MediaCard、MediaGridToolbar、MediaInfoCard
 - 电影/剧集页采用「卡片墙 + 侧边详情」布局：主体为影视海报卡片网格，点击卡片在右侧（移动端为抽屉）展开详情面板
-- 自定义 Hook：useMediaPolling、useMediaGrouping
+- 自定义 Hook：useMediaPolling、useMediaGrouping、useToast
+- 用户提示统一使用内部顶栏 Toast（`ToastProvider` + `useToast().showToast(message, type)`，type 为 success/error/info），禁止使用浏览器 `alert()` 弹窗
 
 ### 数据库
 

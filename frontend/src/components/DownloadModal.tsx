@@ -5,6 +5,7 @@ import Modal from './Modal';
 import MediaSelector, { type MediaSelection } from './MediaSelector';
 import EpisodeSelector from './EpisodeSelector';
 import { createDownloadTask, type SearchResult } from '../api';
+import { useToast } from '../hooks/useToast';
 
 interface DownloadModalProps {
   isOpen: boolean;
@@ -20,6 +21,7 @@ export default function DownloadModal({
   onDownload,
 }: DownloadModalProps): React.JSX.Element | null {
   const { t } = useTranslation();
+  const { showToast } = useToast();
   const [selectedLangs, setSelectedLangs] = useState<string[]>([]);
   const [targetMedia, setTargetMedia] = useState<MediaSelection | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<number | undefined>(undefined);
@@ -110,10 +112,10 @@ export default function DownloadModal({
       }
       onDownload?.();
       onClose();
-      alert(t('download.downloadAdded'));
+      showToast(t('download.downloadAdded'), 'success');
     } catch (err) {
       console.error('Download failed:', err);
-      alert(t('download.downloadFailed'));
+      showToast(t('download.downloadFailed'), 'error');
     } finally {
       setLoading(false);
     }

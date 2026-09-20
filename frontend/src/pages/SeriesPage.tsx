@@ -7,9 +7,11 @@ import { MediaInfoCard } from '../components/MediaInfoCard';
 import { MediaItem } from '../components/MediaItem';
 import { Search, Loader2, AudioWaveform } from 'lucide-react';
 import { useMediaBrowserController } from '../hooks/useMediaBrowserController';
+import { useToast } from '../hooks/useToast';
 
 export default function SeriesPage() {
   const { t } = useTranslation();
+  const { showToast } = useToast();
   const {
     selectedItem: selectedSeries,
     sidebarItems,
@@ -56,7 +58,7 @@ export default function SeriesPage() {
       await autoMatchFile(fileId);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      alert(t('mediaConfig.triggerFailed') + ': ' + message);
+      showToast(t('mediaConfig.triggerFailed') + ': ' + message, 'error');
       setMatchingFileOptimistic(fileId, false);
     }
   };
@@ -70,7 +72,7 @@ export default function SeriesPage() {
       clearTimeout(timeoutId);
       setMatchingSeasonOptimistic(title, season, false);
       const message = err instanceof Error ? err.message : String(err);
-      alert(t('mediaConfig.triggerFailed') + ': ' + message);
+      showToast(t('mediaConfig.triggerFailed') + ': ' + message, 'error');
     }
   };
 
@@ -86,7 +88,7 @@ export default function SeriesPage() {
       clearTimeout(timeoutId);
       setAligningSeriesOptimistic(title, false);
       const message = err instanceof Error ? err.message : String(err);
-      alert(t('mediaConfig.triggerFailed') + ': ' + message);
+      showToast(t('mediaConfig.triggerFailed') + ': ' + message, 'error');
     }
   };
 

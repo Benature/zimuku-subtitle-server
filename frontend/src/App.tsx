@@ -4,6 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { queryClient } from './lib/queryClient';
 import { MediaPollingProvider } from './contexts/MediaPollingContext';
+import { ToastProvider } from './contexts/ToastContext';
 import './i18n';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
@@ -82,7 +83,8 @@ function Layout({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <MediaPollingProvider>
+      <ToastProvider>
+        <MediaPollingProvider>
         <Router>
           <Layout>
             <Suspense fallback={<RouteFallback />}>
@@ -97,7 +99,8 @@ function App() {
             </Suspense>
           </Layout>
         </Router>
-      </MediaPollingProvider>
+        </MediaPollingProvider>
+      </ToastProvider>
     </QueryClientProvider>
   );
 }
