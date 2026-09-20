@@ -170,7 +170,9 @@
   },
   "allowNoSubtitle": {
     "title": "允许无字幕",
-    "description": "标记后批量与定时补字幕将跳过该作品"
+    "description": "标记后批量与定时补字幕将跳过该作品",
+    "marked": "已标记为允许无字幕",
+    "unmarked": "已恢复为需要字幕"
   },
   "action": {
     "autoSearch": "自动搜索",

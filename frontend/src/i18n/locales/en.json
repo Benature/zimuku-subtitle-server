@@ -170,7 +170,9 @@
   },
   "allowNoSubtitle": {
     "title": "Allow No Subtitles",
-    "description": "Batch and scheduled subtitle matching will skip this work"
+    "description": "Batch and scheduled subtitle matching will skip this work",
+    "marked": "Marked as no subtitle needed",
+    "unmarked": "Restored as subtitle needed"
   },
   "action": {
     "autoSearch": "Auto Search",

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { setWorkAllowNoSubtitle } from '../api';
@@ -11,6 +12,7 @@ interface AllowNoSubtitleToggleProps {
 }
 
 // 「允许无字幕」作品级开关：标记后定时/批量补字幕将跳过该作品，避免重复搜索资源。
+// 点击后立即乐观翻转开关，请求失败时回滚并提示，避免「点击无反应」的体感。
 export function AllowNoSubtitleToggle({
   mediaType,
   title,
@@ -19,13 +21,26 @@ export function AllowNoSubtitleToggle({
   const { t } = useTranslation();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
+  // 乐观状态：记录发起请求时的服务端基准值与目标值；服务端数据刷新（基准值变化）后自动失效
+  const [optimistic, setOptimistic] = useState<{ base: boolean; value: boolean } | null>(null);
+
+  const displayedValue =
+    optimistic !== null && optimistic.base === allowNoSubtitle ? optimistic.value : allowNoSubtitle;
 
   const mutation = useMutation({
     mutationFn: (allow: boolean) => setWorkAllowNoSubtitle(mediaType, title, allow),
-    onSuccess: async () => {
+    onMutate: (allow: boolean) => {
+      setOptimistic({ base: displayedValue, value: allow });
+    },
+    onSuccess: async (_data, allow) => {
+      showToast(
+        allow ? t('allowNoSubtitle.marked') : t('allowNoSubtitle.unmarked'),
+        'success',
+      );
       await queryClient.invalidateQueries({ queryKey: queryKeys.media.files(mediaType) });
     },
     onError: (err: unknown) => {
+      setOptimistic(null);
       const message = err instanceof Error ? err.message : String(err);
       showToast(t('mediaConfig.triggerFailed') + ': ' + message, 'error');
     },
@@ -43,17 +58,17 @@ export function AllowNoSubtitleToggle({
       <button
         type="button"
         role="switch"
-        aria-checked={allowNoSubtitle}
+        aria-checked={displayedValue}
         aria-label={t('allowNoSubtitle.title')}
         disabled={mutation.isPending}
-        onClick={() => mutation.mutate(!allowNoSubtitle)}
+        onClick={() => mutation.mutate(!displayedValue)}
         className={`relative w-11 h-6 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
-          allowNoSubtitle ? 'bg-primary' : 'bg-surface-container-highest'
+          displayedValue ? 'bg-primary' : 'bg-surface-container-highest'
         }`}
       >
         <span
           className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-            allowNoSubtitle ? 'translate-x-5' : 'translate-x-0'
+            displayedValue ? 'translate-x-5' : 'translate-x-0'
           }`}
         />
       </button>
