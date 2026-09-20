@@ -372,7 +372,7 @@ async def test_library_match_collects_failures():
     assert set(stats.failed_files) == {"FailOne.mkv", "FailTwo.mkv"}
 
 
-def _add_pending(session, title: str, filename: str, media_type: str = "tv") -> None:
+def _add_pending(session, title: str, filename: str, media_type: str = "tv", season: int | None = None) -> None:
     session.add(
         ScannedFile(
             path_id=1,
@@ -380,6 +380,7 @@ def _add_pending(session, title: str, filename: str, media_type: str = "tv") -> 
             file_path=f"/library/{filename}",
             filename=filename,
             extracted_title=title,
+            season=season,
             has_subtitle=False,
         )
     )
@@ -390,8 +391,8 @@ def _add_pending(session, title: str, filename: str, media_type: str = "tv") -> 
 async def test_library_match_respects_max_works_and_prefers_largest_gap():
     with Session(engine) as session:
         for index in range(3):
-            _add_pending(session, "Big Show (2024)", f"BigShow.S01E0{index}.mkv")
-        _add_pending(session, "Small Show", "SmallShow.S01E01.mkv")
+            _add_pending(session, "Big Show (2024)", f"BigShow.S01E0{index}.mkv", season=1)
+        _add_pending(session, "Small Show", "SmallShow.S01E01.mkv", season=1)
         _add_pending(session, "Some Movie", "SomeMovie.2024.mkv", media_type="movie")
 
     matched_ids = []
@@ -412,8 +413,8 @@ async def test_library_match_respects_max_works_and_prefers_largest_gap():
 
     stats = await service.run()
 
-    # 只补缺口最大的一部剧（3 集），且 "Big Show (2024)" 被归一化为 "Big Show"
-    assert stats.titles == ["Big Show"]
+    # 只补缺口最大的一季（3 集），且 "Big Show (2024)" 被归一化为 "Big Show"
+    assert stats.titles == ["Big Show S01"]
     assert stats.total == 3
     assert stats.matched == 3
     assert stats.remaining_works == 2
@@ -421,16 +422,51 @@ async def test_library_match_respects_max_works_and_prefers_largest_gap():
 
 
 @pytest.mark.anyio
+async def test_library_match_treats_each_season_as_one_work():
+    """同一部剧的不同季按不同作品计数：max_works=1 时每次只补一季。"""
+    with Session(engine) as session:
+        for index in range(2):
+            _add_pending(session, "Big Show", f"BigShow.S01E0{index}.mkv", season=1)
+        _add_pending(session, "Big Show", "BigShow.S02E01.mkv", season=2)
+
+    matched_ids = []
+
+    async def fake_auto_match(file_id: int):
+        matched_ids.append(file_id)
+        return True
+
+    async def fake_sleep(seconds: float):
+        return None
+
+    service = LibraryMatchWorkflow(
+        session_factory=session_scope,
+        auto_match_runner=fake_auto_match,
+        sleep_func=fake_sleep,
+        max_works=1,
+    )
+
+    stats = await service.run()
+
+    # 只补缺口更大的第一季，第二季留待下次运行
+    assert stats.titles == ["Big Show S01"]
+    assert stats.total == 2
+    assert stats.matched == 2
+    assert stats.remaining_works == 1
+    assert len(matched_ids) == 2
+
+
+@pytest.mark.anyio
 async def test_library_match_prioritizes_works_with_nfo_metadata():
     with Session(engine) as session:
         for index in range(3):
-            _add_pending(session, "Big Show", f"BigShow.S01E0{index}.mkv")
+            _add_pending(session, "Big Show", f"BigShow.S01E0{index}.mkv", season=1)
         nfo_file = ScannedFile(
             path_id=1,
             type="tv",
             file_path="/library/NfoShow.S01E01.mkv",
             filename="NfoShow.S01E01.mkv",
             extracted_title="Nfo Show",
+            season=1,
             nfo_title="NFO 剧集",
             has_subtitle=False,
         )
@@ -453,7 +489,7 @@ async def test_library_match_prioritizes_works_with_nfo_metadata():
     stats = await service.run()
 
     # 虽然 Big Show 缺口更大，但 Nfo Show 有 NFO 元数据，应优先处理
-    assert stats.titles == ["Nfo Show"]
+    assert stats.titles == ["Nfo Show S01"]
     assert stats.total == 1
     assert stats.remaining_works == 1
 
@@ -469,12 +505,13 @@ async def test_library_match_prioritizes_unwatched_works_over_nfo():
                     file_path=f"/library/BigShow.S01E0{index}.mkv",
                     filename=f"BigShow.S01E0{index}.mkv",
                     extracted_title="Big Show",
+                    season=1,
                     nfo_title="Big Show NFO",
                     has_subtitle=False,
                 )
             )
         session.commit()
-        _add_pending(session, "Fresh Show (2024)", "FreshShow.S01E01.mkv")
+        _add_pending(session, "Fresh Show (2024)", "FreshShow.S01E01.mkv", season=1)
 
     async def fake_auto_match(file_id: int):
         return True
@@ -493,7 +530,7 @@ async def test_library_match_prioritizes_unwatched_works_over_nfo():
     stats = await service.run()
 
     # 虽然 Big Show 缺口更大且有 NFO 元数据，但 Fresh Show 未观看，应最优先
-    assert stats.titles == ["Fresh Show"]
+    assert stats.titles == ["Fresh Show S01"]
     assert stats.total == 1
     assert stats.remaining_works == 1
 
@@ -501,7 +538,8 @@ async def test_library_match_prioritizes_unwatched_works_over_nfo():
 @pytest.mark.anyio
 async def test_library_match_max_works_zero_processes_all():
     with Session(engine) as session:
-        _add_pending(session, "Show A", "ShowA.S01E01.mkv")
+        _add_pending(session, "Show A", "ShowA.S01E01.mkv", season=1)
+        _add_pending(session, "Show A", "ShowA.S02E01.mkv", season=2)
         _add_pending(session, "Movie B", "MovieB.2024.mkv", media_type="movie")
 
     async def fake_auto_match(file_id: int):
@@ -519,15 +557,16 @@ async def test_library_match_max_works_zero_processes_all():
 
     stats = await service.run()
 
-    assert sorted(stats.titles) == ["Movie B", "Show A"]
-    assert stats.total == 2
+    # max_works=0 时不限数量：同一部剧的两季都处理
+    assert sorted(stats.titles) == ["Movie B", "Show A S01", "Show A S02"]
+    assert stats.total == 3
     assert stats.remaining_works == 0
 
 
 @pytest.mark.anyio
 async def test_library_match_skips_works_allowing_no_subtitle():
     with Session(engine) as session:
-        _add_pending(session, "Show A", "ShowA.S01E01.mkv")
+        _add_pending(session, "Show A", "ShowA.S01E01.mkv", season=1)
         flagged = ScannedFile(
             path_id=1,
             type="movie",
@@ -559,7 +598,7 @@ async def test_library_match_skips_works_allowing_no_subtitle():
 
     stats = await service.run()
 
-    assert stats.titles == ["Show A"]
+    assert stats.titles == ["Show A S01"]
     assert stats.total == 1
     assert flagged_id not in matched_ids
 

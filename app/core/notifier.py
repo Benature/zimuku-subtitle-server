@@ -161,7 +161,7 @@ class FeishuNotifier:
             ]
         )
         if stats.remaining_works > 0:
-            lines.append(f"剩余待补作品：{stats.remaining_works} 部（下次运行继续）")
+            lines.append(f"剩余待补作品：{stats.remaining_works} 部（剧集按季计，下次运行继续）")
         if stats.failed_files:
             lines.append("失败列表：")
             lines.extend(f"- {name}" for name in stats.failed_files[:MAX_FAILURE_ITEMS])

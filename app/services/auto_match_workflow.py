@@ -26,6 +26,21 @@ def normalize_media_title(title: str) -> str:
     return re.sub(r"\s*\(\d{4}\)", "", title).strip()
 
 
+_SEASON_LABEL_SUFFIX_PATTERN = re.compile(r"\s+S\d{2}$")
+
+
+def format_work_label(title: str, season: Optional[int]) -> str:
+    """作品显示标签：剧集按季展示（如 "剧名 S02"），电影或无季信息时用标题本身。"""
+    if season is None:
+        return title
+    return f"{title} S{season:02d}"
+
+
+def work_label_base_title(label: str) -> str:
+    """从作品显示标签还原媒体服务器查询用的基础标题（去除季后缀）。"""
+    return _SEASON_LABEL_SUFFIX_PATTERN.sub("", label)
+
+
 def build_search_queries(
     extracted_title: Optional[str],
     nfo_title: Optional[str] = None,
@@ -345,8 +360,9 @@ class SeasonMatchWorkflow:
 
 
 class LibraryMatchWorkflow:
-    """全库批量补全：对缺失字幕的作品（剧集/电影）执行自动匹配。
+    """全库批量补全：对缺失字幕的作品执行自动匹配。
 
+    作品单位：剧集按「一季」计（同一标题的不同季是不同作品），电影按「一部」计。
     按 ``max_works`` 限制每次运行处理的作品数量（0 表示不限），避免单次运行请求过多导致封禁。
     作品优先级：媒体服务器（Jellyfin/Emby/Plex）未观看的作品最优先（需启用联动且拉取成功），
     其次是有 NFO 元数据的作品，最后按缺字幕文件数降序、标题升序兜底。
@@ -375,9 +391,10 @@ class LibraryMatchWorkflow:
             files = session.exec(statement).all()
             return [(file_record.id, file_record.filename) for file_record in files if file_record.id is not None]
 
-    def load_pending_groups(self) -> tuple[dict[str, List[tuple[int, str]]], set[str]]:
-        """按作品（规范化标题）分组缺失字幕的文件（跳过允许无字幕的作品）。
+    def load_pending_groups(self) -> tuple[dict[tuple[str, Optional[int]], List[tuple[int, str]]], set[str]]:
+        """按作品分组缺失字幕的文件（跳过允许无字幕的作品）。
 
+        作品分组键为 (规范化标题, 季号)：剧集每一季是一个作品，电影（季号为 None）一部是一个作品。
         返回 (分组, 含 NFO 元数据的作品标题集合)：任一缺字幕文件带 nfo_title
         或 nfo_original_title 即视为该作品可检索到 NFO 元数据。
         """
@@ -388,29 +405,29 @@ class LibraryMatchWorkflow:
             )
             files = session.exec(statement).all()
 
-        groups: dict[str, List[tuple[int, str]]] = {}
+        groups: dict[tuple[str, Optional[int]], List[tuple[int, str]]] = {}
         nfo_titles: set[str] = set()
         for file_record in files:
             if file_record.id is None:
                 continue
             title = normalize_media_title(file_record.extracted_title or file_record.filename)
-            groups.setdefault(title, []).append((file_record.id, file_record.filename))
+            groups.setdefault((title, file_record.season), []).append((file_record.id, file_record.filename))
             if file_record.nfo_title or file_record.nfo_original_title:
                 nfo_titles.add(title)
         return groups, nfo_titles
 
-    def _unwatched_titles(self, groups: dict[str, List[tuple[int, str]]]) -> set[str]:
+    def _unwatched_titles(self, groups: dict[tuple[str, Optional[int]], List[tuple[int, str]]]) -> set[str]:
         """返回命中媒体服务器未观看索引的作品标题集合（未启用/拉取失败时为空）。"""
         if not self._unwatched:
             return set()
-        return {title for title in groups if self._unwatched.matches(title)}
+        return {title for title, _season in groups if self._unwatched.matches(title)}
 
     def select_works(
         self,
-        groups: dict[str, List[tuple[int, str]]],
+        groups: dict[tuple[str, Optional[int]], List[tuple[int, str]]],
         nfo_titles: set[str],
-    ) -> tuple[List[tuple[str, List]], int]:
-        """按媒体服务器未观看优先 → NFO 元数据优先 → 缺字幕文件数降序（标题升序兜底）选择本次运行的作品，
+    ) -> tuple[List[tuple[tuple[str, Optional[int]], List]], int]:
+        """按媒体服务器未观看优先 → NFO 元数据优先 → 缺字幕文件数降序（标题、季号升序兜底）选择本次运行的作品，
         返回 (选中项, 剩余作品数)。"""
         unwatched_titles = self._unwatched_titles(groups)
         if unwatched_titles:
@@ -418,10 +435,11 @@ class LibraryMatchWorkflow:
         ordered = sorted(
             groups.items(),
             key=lambda item: (
-                item[0] not in unwatched_titles,
-                item[0] not in nfo_titles,
+                item[0][0] not in unwatched_titles,
+                item[0][0] not in nfo_titles,
                 -len(item[1]),
-                item[0],
+                item[0][0],
+                item[0][1] or 0,
             ),
         )
         if self._max_works <= 0:
@@ -433,7 +451,7 @@ class LibraryMatchWorkflow:
         selected, remaining = self.select_works(groups, nfo_titles)
         stats = BatchMatchStats(
             total=sum(len(files) for _, files in selected),
-            titles=[title for title, _ in selected],
+            titles=[format_work_label(title, season) for (title, season), _ in selected],
             remaining_works=remaining,
         )
         if not selected:

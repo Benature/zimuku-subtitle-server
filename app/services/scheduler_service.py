@@ -14,7 +14,7 @@ from ..core.mediaserver import fetch_backdrops, fetch_unwatched_index
 from ..core.notifier import FeishuNotifier, ScheduledJobStats
 from ..db.models import ScannedFile
 from ..db.session import session_scope
-from .auto_match_workflow import BatchMatchStats, LibraryMatchWorkflow
+from .auto_match_workflow import BatchMatchStats, LibraryMatchWorkflow, work_label_base_title
 from .media_service import MediaService
 
 logger = logging.getLogger(__name__)
@@ -182,7 +182,14 @@ class SchedulerService:
             return
         images = {}
         if stats.titles and notifier.image_upload_configured:
-            images = await fetch_backdrops(stats.titles)
+            # 作品标签可能带季后缀（如 "剧名 S02"），媒体服务器按基础标题查询封面
+            base_titles = list(dict.fromkeys(work_label_base_title(label) for label in stats.titles))
+            base_images = await fetch_backdrops(base_titles)
+            images = {
+                label: base_images[work_label_base_title(label)]
+                for label in stats.titles
+                if work_label_base_title(label) in base_images
+            }
         await notifier.send_scheduled_report(stats, images=images)
 
 

@@ -184,6 +184,29 @@ async def test_notify_fetches_backdrops_and_passes_images_to_report():
 
 
 @pytest.mark.anyio
+async def test_notify_fetches_backdrops_by_base_title_for_season_labels():
+    """剧集作品标签带季后缀时，按基础标题拉取封面并映射回各季标签。"""
+    notifier_mock = AsyncMock()
+    notifier_mock.configured = True
+    notifier_mock.image_upload_configured = True
+    stats = ScheduledJobStats(matched=2, titles=["Show A S01", "Show A S02"])
+    fetch_mock = AsyncMock(return_value={"Show A": b"img-bytes"})
+
+    with (
+        patch("app.services.scheduler_service.ConfigManager") as config_mock,
+        patch("app.services.scheduler_service.FeishuNotifier", return_value=notifier_mock),
+        patch("app.services.scheduler_service.fetch_backdrops", fetch_mock),
+    ):
+        config_mock.get_bool.return_value = True
+        await SchedulerService._notify(stats)
+
+    fetch_mock.assert_awaited_once_with(["Show A"])
+    notifier_mock.send_scheduled_report.assert_awaited_once_with(
+        stats, images={"Show A S01": b"img-bytes", "Show A S02": b"img-bytes"}
+    )
+
+
+@pytest.mark.anyio
 async def test_notify_skips_backdrop_fetch_without_app_credentials():
     notifier_mock = AsyncMock()
     notifier_mock.configured = True
