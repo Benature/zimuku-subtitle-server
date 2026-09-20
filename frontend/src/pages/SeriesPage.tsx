@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { autoMatchFile, matchTVSeason } from '../api';
+import { alignSeriesSubtitles, autoMatchFile, matchTVSeason } from '../api';
 import { MediaGridToolbar } from '../components/MediaGridToolbar';
 import { MediaCard } from '../components/MediaCard';
 import { MediaInfoCard } from '../components/MediaInfoCard';
 import { MediaItem } from '../components/MediaItem';
-import { Search, Loader2 } from 'lucide-react';
+import { Search, Loader2, AudioWaveform } from 'lucide-react';
 import { useMediaBrowserController } from '../hooks/useMediaBrowserController';
 
 export default function SeriesPage() {
@@ -26,12 +26,14 @@ export default function SeriesPage() {
     status,
     setMatchingFileOptimistic,
     setMatchingSeasonOptimistic,
+    setAligningSeriesOptimistic,
     selectedSeason,
     setSelectedSeason,
     availableSeasons,
     currentSeasonFiles,
     totalEpisodesCount,
     isSelectedSeasonMatching,
+    isSelectedSeriesAligning,
   } = useMediaBrowserController({
     type: 'tv',
     unknownLabel: t('page.series.unknownSeries'),
@@ -67,6 +69,22 @@ export default function SeriesPage() {
     } catch (err: unknown) {
       clearTimeout(timeoutId);
       setMatchingSeasonOptimistic(title, season, false);
+      const message = err instanceof Error ? err.message : String(err);
+      alert(t('mediaConfig.triggerFailed') + ': ' + message);
+    }
+  };
+
+  const handleAlignSeries = async (title: string) => {
+    if (!window.confirm(t('page.series.alignAllConfirm', { title }))) {
+      return;
+    }
+    setAligningSeriesOptimistic(title, true);
+    const timeoutId = setTimeout(() => setAligningSeriesOptimistic(title, false), 3000);
+    try {
+      await alignSeriesSubtitles(title);
+    } catch (err: unknown) {
+      clearTimeout(timeoutId);
+      setAligningSeriesOptimistic(title, false);
       const message = err instanceof Error ? err.message : String(err);
       alert(t('mediaConfig.triggerFailed') + ': ' + message);
     }
@@ -134,11 +152,28 @@ export default function SeriesPage() {
             </div>
 
             <div className="flex-1 min-h-0 p-6 pt-4 space-y-6 overflow-y-auto custom-scrollbar">
-              <div className="flex justify-between items-center bg-surface-container/50 p-4 rounded-xl border border-outline-variant/10">
+              <div className="flex justify-between items-center gap-3 bg-surface-container/50 p-4 rounded-xl border border-outline-variant/10">
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="material-symbols-outlined text-on-surface-variant shrink-0">folder_open</span>
                   <code className="text-sm text-on-surface-variant font-body truncate">{selectedSeries.seriesRootPath}</code>
                 </div>
+                <button
+                  onClick={() => handleAlignSeries(selectedSeries.title)}
+                  disabled={isSelectedSeriesAligning}
+                  title={t('page.series.alignAllSubtitles')}
+                  className={`shrink-0 text-xs px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-2 border uppercase tracking-widest ${
+                    isSelectedSeriesAligning
+                      ? 'bg-surface-container text-on-surface-variant border-outline-variant/20 cursor-not-allowed'
+                      : 'bg-secondary/10 text-secondary border-secondary/20 hover:bg-secondary/20'
+                  }`}
+                >
+                  {isSelectedSeriesAligning ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  ) : (
+                    <AudioWaveform className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                  {isSelectedSeriesAligning ? t('page.series.aligningSubtitles') : t('page.series.alignAllSubtitles')}
+                </button>
               </div>
 
               <div className="flex items-center justify-between border-b border-outline-variant/10 relative">

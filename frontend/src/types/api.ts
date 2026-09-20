@@ -44,6 +44,8 @@ export interface TaskStatus {
   is_scanning: boolean;
   matching_files: number[];
   matching_seasons: { title: string; season: number }[];
+  aligning_series: string[];
+  aligning_files: number[];
 }
 
 // Task Types

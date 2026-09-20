@@ -35,6 +35,9 @@
       "season": "Season {{n}}",
       "smartMatch": "Smart Match Season",
       "smartMatching": "Matching...",
+      "alignAllSubtitles": "Align All Subtitles",
+      "aligningSubtitles": "Aligning...",
+      "alignAllConfirm": "Align subtitles with audio track for every episode of \"{{title}}\" (originals are backed up as .orig, this may take a while). Continue?",
       "noVideos": "No video files for this season",
       "episodeFile": "Episode & File Name",
       "statusAction": "Status & Actions",
@@ -139,6 +142,7 @@
   },
   "status": {
     "searching": "Searching",
+    "aligning": "Aligning",
     "matched": "Matched",
     "missing": "Missing",
     "hasSubtitle": "Has Subtitles",

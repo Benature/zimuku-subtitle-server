@@ -22,6 +22,7 @@ export interface MediaPollingContextValue extends MediaPollingState {
   setIsScanningOptimistic: (value: boolean) => void;
   setMatchingFileOptimistic: (fileId: number, isMatching: boolean) => void;
   setMatchingSeasonOptimistic: (title: string, season: number, isMatching: boolean) => void;
+  setAligningSeriesOptimistic: (title: string, isAligning: boolean) => void;
 }
 
 export const MediaPollingContext = createContext<MediaPollingContextValue | null>(null);

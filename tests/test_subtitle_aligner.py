@@ -10,6 +10,7 @@ from app.core.config import ConfigManager, SettingKey
 from app.db.models import MediaPath, ScannedFile, Setting, SubtitleAlignmentState, SubtitleTask
 from app.db.session import create_db_and_tables, engine
 from app.main import app
+from app.services.media_service import MediaService, global_task_status
 from app.services.subtitle_align_service import SubtitleAlignService
 from app.services.subtitle_inspection_service import (
     SubtitleInspectionService,
@@ -736,3 +737,141 @@ def test_alignment_state_in_api_response(tmp_path: Path):
     data = res.json()
     assert data[0]["alignment_status"] == "misaligned"
     assert data[0]["alignment_max_shift_ms"] == 800.0
+
+
+def _create_series_file(tmp_path: Path, title: str, season: int, episode: int, subtitle_names: list[str]) -> int:
+    """创建剧集视频文件 + 关联字幕，并登记 ScannedFile，返回 file_id。"""
+    video_path = tmp_path / f"{title}.S{season:02d}E{episode:02d}.mkv"
+    video_path.write_bytes(b"fake video")
+    for sub_name in subtitle_names:
+        (tmp_path / sub_name).write_text("1\n00:00:01,000 --> 00:00:02,000\nLine\n", encoding="utf-8")
+
+    with Session(engine) as session:
+        path_record = session.exec(select(MediaPath).where(MediaPath.path == str(tmp_path))).first()
+        if path_record is None:
+            path_record = MediaPath(path=str(tmp_path), type="tv")
+            session.add(path_record)
+            session.commit()
+            session.refresh(path_record)
+        media = ScannedFile(
+            path_id=path_record.id,
+            type="tv",
+            file_path=str(video_path),
+            filename=video_path.name,
+            has_subtitle=bool(subtitle_names),
+            extracted_title=title,
+            season=season,
+            episode=episode,
+        )
+        session.add(media)
+        session.commit()
+        session.refresh(media)
+        return media.id
+
+
+@pytest.mark.anyio
+async def test_run_series_align_process_aligns_all_subtitles(tmp_path: Path):
+    series_dir = tmp_path / "series"
+    series_dir.mkdir()
+    first_id = _create_series_file(series_dir, "Show A", 1, 1, ["Show A.S01E01.zh.srt", "Show A.S01E01.zh.ass"])
+    second_id = _create_series_file(series_dir, "Show A", 1, 2, ["Show A.S01E02.zh.srt"])
+    no_sub_id = _create_series_file(series_dir, "Show A", 1, 3, [])
+
+    async def fake_align(reference_path, subtitle_path, output_path, split_penalty=7.0):
+        output_path.write_text("1\n00:00:02,000 --> 00:00:03,000\nAligned\n", encoding="utf-8")
+
+    with patch.object(SubtitleAligner, "align", side_effect=fake_align):
+        await MediaService.run_series_align_process("Show A")
+
+    # 任务状态已清理
+    assert "Show A" not in global_task_status.aligning_series
+    assert first_id not in global_task_status.aligning_files
+    assert second_id not in global_task_status.aligning_files
+
+    # 每集字幕均已对齐：内容被改写、.orig 备份生成、状态记录为 aligned
+    with Session(engine) as session:
+        for file_id, sub_names in (
+            (first_id, ["Show A.S01E01.zh.srt", "Show A.S01E01.zh.ass"]),
+            (second_id, ["Show A.S01E02.zh.srt"]),
+        ):
+            subs = SubtitleInspectionService.get_existing_subtitles(session, file_id)
+            assert sorted(sub.filename for sub in subs) == sorted(sub_names)
+            for sub in subs:
+                assert sub.alignment_status == "aligned"
+                sub_path = series_dir / sub.filename
+                assert "Aligned" in sub_path.read_text(encoding="utf-8")
+                orig_backup = sub_path.with_name(f"{sub_path.stem}.orig{sub_path.suffix}")
+                assert orig_backup.is_file()
+
+    # 无字幕文件被跳过且不报错
+    with Session(engine) as session:
+        assert SubtitleInspectionService.get_existing_subtitles(session, no_sub_id) == []
+
+
+@pytest.mark.anyio
+async def test_run_series_align_process_matches_normalized_title(tmp_path: Path):
+    series_dir = tmp_path / "series_norm"
+    series_dir.mkdir()
+    file_id = _create_series_file(series_dir, "Show B", 1, 1, ["Show B.S01E01.zh.srt"])
+
+    async def fake_align(reference_path, subtitle_path, output_path, split_penalty=7.0):
+        output_path.write_text("1\n00:00:02,000 --> 00:00:03,000\nAligned\n", encoding="utf-8")
+
+    # 带年份的标题应通过规范化匹配到同一剧集
+    with patch.object(SubtitleAligner, "align", side_effect=fake_align):
+        await MediaService.run_series_align_process("Show B (2021)")
+
+    with Session(engine) as session:
+        subs = SubtitleInspectionService.get_existing_subtitles(session, file_id)
+        assert subs[0].alignment_status == "aligned"
+
+
+@pytest.mark.anyio
+async def test_run_series_align_process_continues_after_failure(tmp_path: Path):
+    series_dir = tmp_path / "series_fail"
+    series_dir.mkdir()
+    ok_id = _create_series_file(series_dir, "Show C", 1, 1, ["Show C.S01E01.zh.srt"])
+    fail_id = _create_series_file(series_dir, "Show C", 1, 2, ["Show C.S01E02.zh.srt"])
+
+    real_call_count = {"n": 0}
+
+    async def flaky_align(reference_path, subtitle_path, output_path, split_penalty=7.0):
+        real_call_count["n"] += 1
+        if subtitle_path.name == "Show C.S01E02.zh.srt":
+            raise SubtitleAlignError("boom")
+        output_path.write_text("1\n00:00:02,000 --> 00:00:03,000\nAligned\n", encoding="utf-8")
+
+    with patch.object(SubtitleAligner, "align", side_effect=flaky_align):
+        await MediaService.run_series_align_process("Show C")
+
+    # 两条字幕都被尝试过，失败不中断
+    assert real_call_count["n"] == 2
+    assert "Show C" not in global_task_status.aligning_series
+    assert fail_id not in global_task_status.aligning_files
+
+    with Session(engine) as session:
+        ok_subs = SubtitleInspectionService.get_existing_subtitles(session, ok_id)
+        fail_subs = SubtitleInspectionService.get_existing_subtitles(session, fail_id)
+        assert ok_subs[0].alignment_status == "aligned"
+        assert fail_subs[0].alignment_status == "unknown"
+
+
+def test_series_align_api_trigger():
+    with patch("app.api.media.MediaService.run_series_align_process", new=AsyncMock(return_value=None)) as mock_run:
+        res = client.post("/media/series/align-subtitles", json={"title": "Show D"})
+        assert res.status_code == 200
+        data = res.json()
+        assert data["status"] == "ok"
+        assert data["task_kind"] == "series_align"
+        assert data["target"] == "Show D"
+        mock_run.assert_called_once_with("Show D")
+
+        # 兼容 query 参数形式
+        res = client.post("/media/series/align-subtitles?title=Show%20E")
+        assert res.status_code == 200
+        assert res.json()["target"] == "Show E"
+
+
+def test_series_align_api_requires_title():
+    res = client.post("/media/series/align-subtitles", json={})
+    assert res.status_code == 422

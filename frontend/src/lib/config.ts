@@ -9,6 +9,7 @@ export const API_ENDPOINTS = {
   MEDIA_MATCH: '/media/match',
   MEDIA_AUTO_MATCH: (fileId: number) => `/media/files/${fileId}/auto-match`,
   MEDIA_TV_MATCH_SEASON: '/media/tv/match-season',
+  MEDIA_SERIES_ALIGN_SUBTITLES: '/media/series/align-subtitles',
   MEDIA_TASK_STATUS: '/media/task-status',
   MEDIA_SUBTITLES: (fileId: number) => `/media/files/${fileId}/subtitles`,
   MEDIA_ALIGN_SUBTITLE: (fileId: number) => `/media/files/${fileId}/align-subtitle`,

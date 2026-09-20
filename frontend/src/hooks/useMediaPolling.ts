@@ -15,6 +15,7 @@ export function useMediaPolling(type: MediaType) {
     setIsScanningOptimistic,
     setMatchingFileOptimistic,
     setMatchingSeasonOptimistic,
+    setAligningSeriesOptimistic,
   } = useMediaPollingContext();
 
   const data = type === 'movie' ? movie : tv;
@@ -31,5 +32,6 @@ export function useMediaPolling(type: MediaType) {
     setIsScanningOptimistic,
     setMatchingFileOptimistic,
     setMatchingSeasonOptimistic,
+    setAligningSeriesOptimistic,
   };
 }

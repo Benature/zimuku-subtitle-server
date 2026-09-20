@@ -25,6 +25,7 @@ import {
   getSortedSeasonNumbers,
   isMovieGroup,
   isSelectedSeasonMatching as getIsSelectedSeasonMatching,
+  isSelectedSeriesAligning as getIsSelectedSeriesAligning,
   orderSidebarEntries,
   type SidebarEntry,
   getTotalEpisodesCount,
@@ -65,6 +66,7 @@ interface BaseMediaBrowserController<TGroup extends MovieGroup | TvGroup> {
   setIsScanningOptimistic: ReturnType<typeof useMediaPolling>['setIsScanningOptimistic'];
   setMatchingFileOptimistic: ReturnType<typeof useMediaPolling>['setMatchingFileOptimistic'];
   setMatchingSeasonOptimistic: ReturnType<typeof useMediaPolling>['setMatchingSeasonOptimistic'];
+  setAligningSeriesOptimistic: ReturnType<typeof useMediaPolling>['setAligningSeriesOptimistic'];
 }
 
 interface MovieBrowserController extends BaseMediaBrowserController<MovieGroup> {
@@ -79,6 +81,7 @@ interface TvBrowserController extends BaseMediaBrowserController<TvGroup> {
   currentSeasonFiles: TvGroup['seasons'][number];
   totalEpisodesCount: number;
   isSelectedSeasonMatching: boolean;
+  isSelectedSeriesAligning: boolean;
 }
 
 function useKeepDesktopSidebarOpen(toggleSidebar: () => void) {
@@ -149,6 +152,7 @@ export function useMediaBrowserController(
     setIsScanningOptimistic,
     setMatchingFileOptimistic,
     setMatchingSeasonOptimistic,
+    setAligningSeriesOptimistic,
   } = useMediaPolling(type);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTitle, setSelectedTitle] = useState<string | null>(null);
@@ -307,6 +311,12 @@ export function useMediaBrowserController(
     return getIsSelectedSeasonMatching(status, selectedTvItem, selectedSeason);
   }, [selectedSeason, selectedTvItem, status, type]);
 
+  const isSelectedSeriesAligning = useMemo(() => {
+    if (type !== 'tv') return false;
+
+    return getIsSelectedSeriesAligning(status, selectedTvItem);
+  }, [selectedTvItem, status, type]);
+
   const handleSortChange = (option: SortOption) => {
     if (option === sortOption) {
       setSortOrder(current => (current === 'asc' ? 'desc' : 'asc'));
@@ -351,6 +361,7 @@ export function useMediaBrowserController(
       setIsScanningOptimistic,
       setMatchingFileOptimistic,
       setMatchingSeasonOptimistic,
+      setAligningSeriesOptimistic,
     };
   }
 
@@ -376,11 +387,13 @@ export function useMediaBrowserController(
     setIsScanningOptimistic,
     setMatchingFileOptimistic,
     setMatchingSeasonOptimistic,
+    setAligningSeriesOptimistic,
     selectedSeason,
     setSelectedSeason,
     availableSeasons,
     currentSeasonFiles,
     totalEpisodesCount,
     isSelectedSeasonMatching,
+    isSelectedSeriesAligning,
   };
 }

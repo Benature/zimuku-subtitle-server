@@ -1,5 +1,6 @@
 import json
 import logging
+from pathlib import Path
 from typing import Any, List, Optional, Set, Tuple
 
 from sqlmodel import Session, col, or_, select
@@ -9,6 +10,8 @@ from ..db.session import session_scope
 from .auto_match_workflow import AutoMatchWorkflow, SeasonMatchWorkflow, normalize_media_title
 from .errors import ConflictError
 from .media_scan_pipeline import MediaScanPipeline
+from .subtitle_align_service import SubtitleAlignService
+from .subtitle_inspection_service import SubtitleInspectionService
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +23,16 @@ class MediaTaskStatus:
         self.is_scanning = False
         self.matching_files: Set[int] = set()
         self.matching_seasons: Set[Tuple[str, int]] = set()
+        self.aligning_series: Set[str] = set()
+        self.aligning_files: Set[int] = set()
 
     def to_dict(self):
         return {
             "is_scanning": self.is_scanning,
             "matching_files": list(self.matching_files),
             "matching_seasons": [{"title": t, "season": s} for t, s in self.matching_seasons],
+            "aligning_series": list(self.aligning_series),
+            "aligning_files": list(self.aligning_files),
         }
 
 
@@ -320,3 +327,77 @@ class MediaService:
             raise
         finally:
             global_task_status.matching_seasons.discard((title, season))
+
+    @staticmethod
+    def _load_series_file_ids(session: Session, title: str) -> List[int]:
+        """按剧集标题（含去年份规范化匹配）加载全部 TV 文件 ID，按季/集排序。"""
+        query_title = normalize_media_title(title)
+        statement = (
+            select(ScannedFile)
+            .where(
+                or_(
+                    ScannedFile.extracted_title == query_title,
+                    ScannedFile.extracted_title == title,
+                ),
+                ScannedFile.type == "tv",
+            )
+            .order_by(col(ScannedFile.season), col(ScannedFile.episode), col(ScannedFile.id))
+        )
+        files = session.exec(statement).all()
+        return [file_record.id for file_record in files if file_record.id is not None]
+
+    @staticmethod
+    async def run_series_align_process(title: str) -> None:
+        """对指定剧集全部视频文件的所有关联字幕顺序执行音轨对齐（后台任务）。
+
+        单集/单条字幕失败仅记录日志，不中断整体流程；对齐前自动备份 .orig。
+        """
+        global_task_status.aligning_series.add(title)
+        stats = {"aligned": 0, "failed": 0, "skipped_files": 0}
+        try:
+            with session_scope() as session:
+                file_ids = MediaService._load_series_file_ids(session, title)
+
+            logger.info("剧集批量对齐开始: title=%s, files=%s", title, len(file_ids))
+            for file_id in file_ids:
+                global_task_status.aligning_files.add(file_id)
+                try:
+                    with session_scope() as session:
+                        media = session.get(ScannedFile, file_id)
+                        if media is None:
+                            continue
+                        subtitle_names = [
+                            p.name
+                            for p in SubtitleInspectionService._find_related_subtitle_files(Path(media.file_path))
+                        ]
+
+                    if not subtitle_names:
+                        stats["skipped_files"] += 1
+                        continue
+
+                    for subtitle_name in subtitle_names:
+                        try:
+                            with session_scope() as session:
+                                await SubtitleAlignService.align_media_subtitle(
+                                    session=session,
+                                    file_id=file_id,
+                                    filename=subtitle_name,
+                                )
+                            stats["aligned"] += 1
+                        except Exception as exc:
+                            stats["failed"] += 1
+                            logger.warning(
+                                "剧集批量对齐单条失败: title=%s, file_id=%s, sub=%s, error=%s",
+                                title,
+                                file_id,
+                                subtitle_name,
+                                exc,
+                            )
+                finally:
+                    global_task_status.aligning_files.discard(file_id)
+            logger.info("剧集批量对齐完成: title=%s, stats=%s", title, stats)
+        except Exception as e:
+            logger.error(f"剧集批量对齐异常: title={title}, error={e}", exc_info=True)
+            raise
+        finally:
+            global_task_status.aligning_series.discard(title)

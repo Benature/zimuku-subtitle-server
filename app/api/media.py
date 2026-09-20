@@ -21,6 +21,7 @@ from .schemas import (
     MediaListResponse,
     MediaMetadataResponse,
     SeasonMatchRequest,
+    SeriesAlignRequest,
     SubtitleAlignmentCheckRequest,
     SubtitleAlignmentCheckResponse,
     SubtitleAlignRequest,
@@ -203,6 +204,25 @@ async def match_tv_season(
         message=f"Matching process for '{request.title}' Season {request.season} started",
         task_kind="season_match",
         target=f"{request.title}:S{request.season:02d}",
+    )
+
+
+@router.post("/series/align-subtitles", response_model=TaskTriggerResponse)
+async def align_series_subtitles(
+    background_tasks: BackgroundTasks,
+    payload: Optional[SeriesAlignRequest] = Body(default=None),
+    title: Optional[str] = Query(default=None, min_length=1),
+) -> TaskTriggerResponse:
+    """触发指定剧集全部视频文件的批量字幕音轨对齐（后台顺序执行，自动备份 .orig）"""
+    try:
+        request = payload or SeriesAlignRequest(title=title or "")
+    except Exception as exc:
+        raise_for_service_error(exc)
+    background_tasks.add_task(MediaService.run_series_align_process, request.title)
+    return _build_trigger_response(
+        message=f"Subtitle alignment process for series '{request.title}' started",
+        task_kind="series_align",
+        target=request.title,
     )
 
 

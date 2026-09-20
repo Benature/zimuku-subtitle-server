@@ -18,6 +18,7 @@ interface OptimisticStatusState {
   isScanning: boolean | null;
   matchingFiles: Set<number>;
   matchingSeasons: Map<string, { title: string; season: number }>;
+  aligningSeries: Set<string>;
 }
 
 const ACTIVE_POLL_INTERVAL = 2000;
@@ -28,6 +29,7 @@ const initialOptimisticStatus: OptimisticStatusState = {
   isScanning: null,
   matchingFiles: new Set<number>(),
   matchingSeasons: new Map<string, { title: string; season: number }>(),
+  aligningSeries: new Set<string>(),
 };
 
 function hasActiveTasks(status: TaskStatus | undefined): boolean {
@@ -38,7 +40,8 @@ function hasActiveTasks(status: TaskStatus | undefined): boolean {
   return (
     status.is_scanning ||
     status.matching_files.length > 0 ||
-    status.matching_seasons.length > 0
+    status.matching_seasons.length > 0 ||
+    status.aligning_series.length > 0
   );
 }
 
@@ -65,10 +68,17 @@ function mergeStatus(
     mergedMatchingSeasons.set(key, value);
   }
 
+  const mergedAligningSeries = new Set(baseStatus?.aligning_series ?? []);
+  for (const title of optimisticStatus.aligningSeries) {
+    mergedAligningSeries.add(title);
+  }
+
   return {
     is_scanning: optimisticStatus.isScanning ?? baseStatus?.is_scanning ?? false,
     matching_files: Array.from(mergedMatchingFiles),
     matching_seasons: Array.from(mergedMatchingSeasons.values()),
+    aligning_series: Array.from(mergedAligningSeries),
+    aligning_files: baseStatus?.aligning_files ?? [],
   };
 }
 
@@ -160,6 +170,23 @@ export function MediaPollingProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const setAligningSeriesOptimistic = useCallback((title: string, isAligning: boolean): void => {
+    setOptimisticStatus(prev => {
+      const aligningSeries = new Set(prev.aligningSeries);
+
+      if (isAligning) {
+        aligningSeries.add(title);
+      } else {
+        aligningSeries.delete(title);
+      }
+
+      return {
+        ...prev,
+        aligningSeries,
+      };
+    });
+  }, []);
+
   const value = useMemo<MediaPollingContextValue>(() => {
     const status = mergeStatus(statusQuery.data, optimisticStatus);
     const allPaths = mediaPathsQuery.data ?? [];
@@ -183,6 +210,7 @@ export function MediaPollingProvider({ children }: { children: ReactNode }) {
       setIsScanningOptimistic,
       setMatchingFileOptimistic,
       setMatchingSeasonOptimistic,
+      setAligningSeriesOptimistic,
     };
   }, [
     mediaPathsQuery.data,
@@ -194,6 +222,7 @@ export function MediaPollingProvider({ children }: { children: ReactNode }) {
     setIsScanningOptimistic,
     setMatchingFileOptimistic,
     setMatchingSeasonOptimistic,
+    setAligningSeriesOptimistic,
     statusQuery.data,
     tvFilesQuery.data,
   ]);

@@ -35,6 +35,9 @@
       "season": "第 {{n}} 季",
       "smartMatch": "智能补全本季字幕",
       "smartMatching": "智能补全中...",
+      "alignAllSubtitles": "全剧音轨对齐",
+      "aligningSubtitles": "音轨对齐中...",
+      "alignAllConfirm": "将对「{{title}}」全部剧集的已有字幕逐集执行音轨对齐（自动备份 .orig 原字幕，耗时较长）。是否继续？",
       "noVideos": "本季暂无视频文件",
       "episodeFile": "集数与文件名称",
       "statusAction": "状态与操作",
@@ -139,6 +142,7 @@
   },
   "status": {
     "searching": "搜索中",
+    "aligning": "对齐中",
     "matched": "已匹配",
     "missing": "缺字幕",
     "hasSubtitle": "有字幕",

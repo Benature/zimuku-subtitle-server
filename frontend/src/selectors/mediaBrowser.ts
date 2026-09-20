@@ -222,3 +222,14 @@ export function isSelectedSeasonMatching(
     season => season.title === selectedSeries.title && season.season === selectedSeason
   );
 }
+
+export function isSelectedSeriesAligning(
+  status: TaskStatus,
+  selectedSeries: TvGroup | undefined
+): boolean {
+  if (!selectedSeries) {
+    return false;
+  }
+
+  return status.aligning_series.includes(selectedSeries.title);
+}

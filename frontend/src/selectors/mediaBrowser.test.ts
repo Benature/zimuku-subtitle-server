@@ -8,6 +8,7 @@ import {
   getSelectionFromUrl,
   getTotalEpisodesCount,
   isSelectedSeasonMatching,
+  isSelectedSeriesAligning,
   orderSidebarEntriesByDisplayYear,
 } from './mediaBrowser';
 import type { MediaMetadata, TaskStatus } from '../types/api';
@@ -70,6 +71,8 @@ const status: TaskStatus = {
   is_scanning: false,
   matching_files: [],
   matching_seasons: [{ title: 'Series', season: 2 }],
+  aligning_series: ['Series'],
+  aligning_files: [11],
 };
 
 describe('mediaBrowser selectors', () => {
@@ -139,5 +142,13 @@ describe('mediaBrowser selectors', () => {
     expect(getCurrentSeasonFiles(seriesGroup, 2)).toHaveLength(1);
     expect(getTotalEpisodesCount(seriesGroup)).toBe(2);
     expect(isSelectedSeasonMatching(status, seriesGroup, 2)).toBe(true);
+  });
+
+  it('能判断剧集级批量对齐状态', () => {
+    expect(isSelectedSeriesAligning(status, seriesGroup)).toBe(true);
+    expect(isSelectedSeriesAligning(status, undefined)).toBe(false);
+    expect(
+      isSelectedSeriesAligning({ ...status, aligning_series: ['Other'] }, seriesGroup)
+    ).toBe(false);
   });
 });

@@ -47,10 +47,15 @@ function getBadgeClass(hasSubtitle: boolean, isMatching: boolean): string {
 function getBadgeLabel(
   hasSubtitle: boolean,
   isMatching: boolean,
+  isAligning: boolean,
   t: ReturnType<typeof useTranslation>['t'],
 ): string {
   if (isMatching) {
     return t('status.searching');
+  }
+
+  if (isAligning) {
+    return t('status.aligning');
   }
 
   if (hasSubtitle) {
@@ -72,10 +77,11 @@ export function MediaItem({
   const navigate = useNavigate();
   const [manageModalOpen, setManageModalOpen] = useState(false);
   const isMatching = status.matching_files.includes(file.id);
+  const isAligning = status.aligning_files.includes(file.id);
   const hasSubtitle = file.has_subtitle;
-  const { backgroundClass, borderClass, iconClass } = getMediaItemTone(hasSubtitle, isMatching);
-  const badgeClass = getBadgeClass(hasSubtitle, isMatching);
-  const badgeLabel = getBadgeLabel(hasSubtitle, isMatching, t);
+  const { backgroundClass, borderClass, iconClass } = getMediaItemTone(hasSubtitle, isMatching || isAligning);
+  const badgeClass = getBadgeClass(hasSubtitle, isMatching || isAligning);
+  const badgeLabel = getBadgeLabel(hasSubtitle, isMatching, isAligning, t);
   const episodeLabel = showEpisode ? `E${file.episode?.toString().padStart(2, '0') || '??'}` : null;
 
   const handleAutoSearch = async (): Promise<void> => {
@@ -110,7 +116,7 @@ export function MediaItem({
         <div
           className={`w-12 h-12 rounded-xl bg-surface-container flex items-center justify-center ${iconClass} shadow-sm shrink-0 ${!hasSubtitle && !isMatching ? 'opacity-80' : ''}`}
         >
-          {isMatching ? (
+          {isMatching || isAligning ? (
             <span className="material-symbols-outlined text-2xl animate-spin">sync</span>
           ) : (
             <span className="material-symbols-outlined text-2xl" style={{ fontVariationSettings: "'FILL' 1" }}>

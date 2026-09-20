@@ -47,6 +47,10 @@ class SeasonMatchRequest(BaseModel):
     season: int = Field(ge=1)
 
 
+class SeriesAlignRequest(BaseModel):
+    title: str = Field(min_length=1)
+
+
 class WorkAllowNoSubtitleRequest(BaseModel):
     media_type: Literal["movie", "tv"]
     title: str = Field(min_length=1)
