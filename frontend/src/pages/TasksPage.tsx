@@ -9,6 +9,7 @@ import {
   useTasksQuery,
 } from '../hooks/queries';
 import { useToast } from '../hooks/useToast';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 function TaskSkeleton(): React.JSX.Element {
   return (
@@ -97,18 +98,29 @@ export default function TasksPage() {
     }
   };
 
-  const handleDelete = async (id: number): Promise<void> => {
-    if (!window.confirm(t('confirm.deleteTask'))) return;
-    await deleteTaskMutation.mutateAsync(id);
+  const [confirmAction, setConfirmAction] = useState<{ kind: 'delete' | 'clear'; id?: number } | null>(null);
+
+  const handleDelete = (id: number): void => {
+    setConfirmAction({ kind: 'delete', id });
   };
 
   const handleRetry = async (id: number): Promise<void> => {
     await retryTaskMutation.mutateAsync(id);
   };
 
-  const handleClear = async (): Promise<void> => {
-    if (!window.confirm(t('confirm.clearCompleted'))) return;
-    await clearCompletedTasksMutation.mutateAsync();
+  const handleClear = (): void => {
+    setConfirmAction({ kind: 'clear' });
+  };
+
+  const handleConfirmAction = async (): Promise<void> => {
+    const action = confirmAction;
+    setConfirmAction(null);
+    if (!action) return;
+    if (action.kind === 'delete' && action.id !== undefined) {
+      await deleteTaskMutation.mutateAsync(action.id);
+    } else if (action.kind === 'clear') {
+      await clearCompletedTasksMutation.mutateAsync();
+    }
   };
 
   return (
@@ -228,6 +240,14 @@ export default function TasksPage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmAction !== null}
+        message={confirmAction?.kind === 'clear' ? t('confirm.clearCompleted') : t('confirm.deleteTask')}
+        danger
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={() => void handleConfirmAction()}
+      />
     </div>
   );
 }

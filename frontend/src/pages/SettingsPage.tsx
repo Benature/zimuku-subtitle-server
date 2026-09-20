@@ -17,6 +17,7 @@ import {
   useTriggerMediaMatchMutation,
   useUpdateSettingMutation,
 } from '../hooks/queries';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 // 已有专属卡片/开关的设置 key，不再在「系统属性」通用列表中重复展示
 const DEDICATED_SETTING_KEYS = new Set([
@@ -229,10 +230,18 @@ export default function SettingsPage() {
     }
   };
 
-  const handleDeletePath = async (id: number, type: 'movie' | 'tv'): Promise<void> => {
-    if (!window.confirm(t('confirm.deletePath'))) return;
-    await deleteMediaPathMutation.mutateAsync({ id, pathType: type });
-    await refreshMediaPaths(type);
+  const [deletePathTarget, setDeletePathTarget] = useState<{ id: number; type: 'movie' | 'tv' } | null>(null);
+
+  const handleDeletePath = (id: number, type: 'movie' | 'tv'): void => {
+    setDeletePathTarget({ id, type });
+  };
+
+  const confirmDeletePath = async (): Promise<void> => {
+    const target = deletePathTarget;
+    setDeletePathTarget(null);
+    if (!target) return;
+    await deleteMediaPathMutation.mutateAsync({ id: target.id, pathType: target.type });
+    await refreshMediaPaths(target.type);
   };
 
   const handleRefreshLibrary = async (type: 'movie' | 'tv'): Promise<void> => {
@@ -816,6 +825,14 @@ export default function SettingsPage() {
           </div>
         </section>
       </div>
+
+      <ConfirmDialog
+        isOpen={deletePathTarget !== null}
+        message={t('confirm.deletePath')}
+        danger
+        onCancel={() => setDeletePathTarget(null)}
+        onConfirm={() => void confirmDeletePath()}
+      />
     </div>
   );
 }

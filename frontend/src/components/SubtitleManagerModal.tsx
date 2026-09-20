@@ -10,6 +10,7 @@ import {
   type ScannedFile,
 } from '../api';
 import Modal from './Modal';
+import ConfirmDialog from './ConfirmDialog';
 
 interface SubtitleManagerModalProps {
   isOpen: boolean;
@@ -110,10 +111,16 @@ export function SubtitleManagerModal({
     }
   };
 
-  const handleRestore = async (filename: string) => {
-    if (!window.confirm(t('subtitles.restoreConfirm', { filename }))) {
-      return;
-    }
+  const [restoreTarget, setRestoreTarget] = useState<string | null>(null);
+
+  const handleRestore = (filename: string) => {
+    setRestoreTarget(filename);
+  };
+
+  const confirmRestore = async () => {
+    const filename = restoreTarget;
+    setRestoreTarget(null);
+    if (!filename) return;
     setRestoringFile(filename);
     setNotice(null);
     try {
@@ -267,6 +274,13 @@ export function SubtitleManagerModal({
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        isOpen={restoreTarget !== null}
+        message={restoreTarget ? t('subtitles.restoreConfirm', { filename: restoreTarget }) : ''}
+        onCancel={() => setRestoreTarget(null)}
+        onConfirm={() => void confirmRestore()}
+      />
     </Modal>
   );
 }

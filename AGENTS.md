@@ -76,7 +76,7 @@ npm run lint
 - 共享组件：MediaConfigPanel、MediaCard、MediaGridToolbar、MediaInfoCard
 - 电影/剧集页采用「卡片墙 + 侧边详情」布局：主体为影视海报卡片网格，点击卡片在右侧（移动端为抽屉）展开详情面板
 - 自定义 Hook：useMediaPolling、useMediaGrouping、useToast
-- 用户提示统一使用内部顶栏 Toast（`ToastProvider` + `useToast().showToast(message, type)`，type 为 success/error/info），禁止使用浏览器 `alert()` 弹窗
+- 用户提示统一使用内部顶栏 Toast（`ToastProvider` + `useToast().showToast(message, type)`，type 为 success/error/info），禁止使用浏览器 `alert()` 弹窗；确认交互统一使用内部 `ConfirmDialog` 组件（基于 `Modal`），禁止 `window.confirm()`
 
 ### 数据库
 
@@ -138,7 +138,7 @@ python -m app.mcp.run_stdio
 - 剧集季补全采用顺序执行模式（间隔 2s），避免并发导致封禁
 - 字幕下载完成后默认自动执行音轨对齐（设置项 `auto_align_after_download`，前端系统设置页可关闭；对齐前自动备份 `.orig` 原字幕，可随时还原；对齐失败仅记录日志，不影响任务状态）
 - 对齐状态是字幕级属性：对齐/检查成功写入 `SubtitleAlignmentState`，还原原字幕时重置为 unknown；批量全库检查可用 `python -m app.scripts.check_library_alignment`（支持分片并行与 `--import-report` 历史报告回写）
-- 剧集级批量对齐：剧集详情面板的「全剧音轨对齐」按钮调用 `POST /media/series/align-subtitles`（body/query: `title`，body 支持 `force`），后台对整部剧所有集的全部关联字幕顺序执行对齐（单条失败不中断，自动备份 .orig）；因系统负载守卫返回 503 时，前端先 Toast 展示后端繁忙原因，随后弹确认框允许以 `force=true` 强制执行；任务状态通过 `/media/task-status` 的 `aligning_series`（剧集标题列表）与 `aligning_files`（文件 ID 列表）暴露，前端轮询展示「对齐中」状态（卡片墙左上角 tag 旋转）
+- 剧集级批量对齐：剧集详情面板的「全剧音轨对齐」按钮调用 `POST /media/series/align-subtitles`（body/query: `title`，body 支持 `force`），后台对整部剧所有集的全部关联字幕顺序执行对齐（单条失败不中断，自动备份 .orig）；因系统负载守卫返回 503 时，前端先 Toast 展示后端繁忙原因，随后通过内部确认弹窗（`ConfirmDialog`）允许以 `force=true` 强制执行；任务状态通过 `/media/task-status` 的 `aligning_series`（剧集标题列表）与 `aligning_files`（文件 ID 列表）暴露，前端轮询展示「对齐中」状态（卡片墙左上角 tag 旋转）
 - 对齐资源守卫：alass/ffsubsync 以 `nice -n 10` 低优先级运行；所有对齐类操作（单文件对齐、对齐检查、任务对齐、剧集批量对齐）执行前通过 `app/core/system_load.py` 检查系统负载（load1/核数 ≥ 1.0 或可用内存 < 10% 判定繁忙），繁忙时 API 返回 503、MCP 返回错误提示；下载后自动对齐在系统繁忙时直接跳过；MCP 工具 `align_subtitle` / `check_subtitle_alignment` 及各 API body 均支持 `force` 参数（默认 false）跳过守卫；批量入口守卫一次，批量中途不再重复检查
 - 自动匹配搜索词按优先级回退：NFO 元数据（nfo_title → nfo_original_title → nfo_aliases）优先，最后回退到目录名提取的 extracted_title（`build_search_queries`），第一个有搜索结果的词即被采用
 - 定时扫描补字幕：设置项 `schedule_enabled` / `schedule_cron`（默认每天 03:00），触发后先刷新媒体库，再对缺字幕的作品顺序补全（间隔 2s）；`schedule_max_works_per_run`（默认 1，0 表示不限）限制每次运行补全的作品数量，作品单位为「剧集的一季 / 一部电影」（同一标题的不同季算不同作品，作品标签如 "剧名 S02"，封面图按去除季后缀的基础标题拉取），作品优先级为：媒体服务器未观看作品（启用联动且拉取成功时）→ 能检索到 NFO 元数据（nfo_title / nfo_original_title）的作品 → 按缺字幕文件数降序、标题升序兜底；完成后可按 `feishu_notify_enabled` / `feishu_webhook_url` / `feishu_webhook_secret`（加签可选）推送飞书汇总通知（含本次补全作品与剩余待补数）；再配置 `feishu_app_id` / `feishu_app_secret`（自建应用凭据，可选）后，通知升级为卡片消息，每部补全作品内嵌一张媒体服务器横屏封面图；前端系统设置页有专属配置卡片，支持立即执行与发送测试通知
