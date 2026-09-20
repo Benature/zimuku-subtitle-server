@@ -104,3 +104,47 @@ def test_database_initialization_migrates_subtitle_task_columns(monkeypatch):
 
     assert "file_id" in columns
     assert "ix_subtitletask_file_id" in indexes
+
+
+def test_database_initialization_migrates_legacy_jellyfin_settings(monkeypatch):
+    legacy_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(legacy_engine)
+    with Session(legacy_engine) as session:
+        session.add(Setting(key="jellyfin_enabled", value="true"))
+        session.add(Setting(key="jellyfin_base_url", value="http://jf.local:8096/"))
+        session.add(Setting(key="jellyfin_api_key", value="legacy-key"))
+        session.add(Setting(key="jellyfin_user_id", value="0123456789abcdef0123456789abcdef"))
+        session.commit()
+
+    monkeypatch.setattr(db_session, "engine", legacy_engine)
+    db_session.create_db_and_tables()
+
+    with Session(legacy_engine) as session:
+        settings = {s.key: s.value for s in session.exec(select(Setting)).all()}
+
+    assert not any(key.startswith("jellyfin_") for key in settings)
+    assert settings["media_server_enabled"] == "true"
+    assert settings["media_server_base_url"] == "http://jf.local:8096"
+    assert settings["media_server_api_key"] == "legacy-key"
+    assert settings["media_server_user_id"] == "0123456789abcdef0123456789abcdef"
+
+
+def test_legacy_jellyfin_settings_migration_keeps_existing_media_server_values(monkeypatch):
+    legacy_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(legacy_engine)
+    with Session(legacy_engine) as session:
+        session.add(Setting(key="jellyfin_base_url", value="http://old.local:8096"))
+        session.add(Setting(key="jellyfin_enabled", value="false"))
+        session.add(Setting(key="media_server_base_url", value="http://new.local:8096"))
+        session.commit()
+
+    monkeypatch.setattr(db_session, "engine", legacy_engine)
+    db_session.create_db_and_tables()
+
+    with Session(legacy_engine) as session:
+        settings = {s.key: s.value for s in session.exec(select(Setting)).all()}
+
+    assert "jellyfin_base_url" not in settings
+    assert "jellyfin_enabled" not in settings
+    assert settings["media_server_base_url"] == "http://new.local:8096"
+    assert settings["media_server_enabled"] == "false"
