@@ -13,3 +13,13 @@ export async function updateSetting(
 ): Promise<void> {
   return postData(API_ENDPOINTS.SETTINGS, { key, value, description });
 }
+
+export interface JellyfinTestResult {
+  status: string;
+  message: string;
+  connected: boolean;
+}
+
+export async function testJellyfinConnection(): Promise<JellyfinTestResult> {
+  return postData(API_ENDPOINTS.SETTINGS_JELLYFIN_TEST);
+}

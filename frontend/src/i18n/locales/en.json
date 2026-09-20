@@ -108,7 +108,15 @@
       "feishuSecret": "Signing secret (optional)",
       "feishuSecretPlaceholder": "Required when the bot has signature verification enabled",
       "feishuTest": "Send test notification",
-      "feishuTestSending": "Sending…"
+      "feishuTestSending": "Sending…",
+      "jellyfinTitle": "Jellyfin Integration",
+      "jellyfinDescription": "Prioritize works not yet watched in Jellyfin during batch subtitle completion",
+      "jellyfinEnabled": "Enable Jellyfin integration",
+      "jellyfinBaseUrlPlaceholder": "http://192.168.1.10:8096",
+      "jellyfinApiKeyPlaceholder": "Jellyfin Dashboard → API Keys",
+      "jellyfinUserIdPlaceholder": "User ID (32-char GUID, empty = first user)",
+      "jellyfinTest": "Test connection",
+      "jellyfinTesting": "Testing…"
     }
   },
   "home": {

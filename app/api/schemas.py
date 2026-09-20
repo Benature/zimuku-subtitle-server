@@ -77,6 +77,11 @@ class FeishuTestResponse(StatusResponse):
     delivered: bool
 
 
+class JellyfinTestResponse(StatusResponse):
+    message: str
+    connected: bool
+
+
 class SubtitleLanguageResponse(BaseModel):
     code: str
     display_name: str

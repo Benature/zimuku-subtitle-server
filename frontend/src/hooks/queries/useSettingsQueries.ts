@@ -5,7 +5,7 @@ import {
   type QueryClient,
   type UseQueryOptions,
 } from '@tanstack/react-query';
-import { listSettings, updateSetting } from '../../api';
+import { listSettings, testJellyfinConnection, updateSetting } from '../../api';
 import { queryKeys } from '../../lib/queryKeys';
 import type { Setting } from '../../types/api';
 
@@ -35,5 +35,11 @@ export function useUpdateSettingMutation() {
     onSuccess: async () => {
       await invalidateSettingsQuery(queryClient);
     },
+  });
+}
+
+export function useJellyfinTestMutation() {
+  return useMutation({
+    mutationFn: testJellyfinConnection,
   });
 }

@@ -57,10 +57,11 @@ npm run lint
 - **`app/api/`** - REST API 路由（media、search、tasks、settings、schedule、system）
 - **`app/core/`** - 核心业务逻辑
   - `scraper.py` - Zimuku 网页爬虫，实现三层递进匹配策略（搜索页 → 季详情页 → 兜底模式）
-  - `archive.py`（`app/core/archive/`）- ZIP/7z/RAR 压缩包解压，解决文件名乱码（CP437 → GBK）；RAR 依赖 rarfile + 系统 unrar
+  - `archive.py`（`app/core/archive/`）- ZIP/7z/RAR 压缩包解压，解决文件名乱码（CP437 → GBK）；RAR 直接调用系统 bsdtar（libarchive）解压
   - `ocr.py` - 轻量级像素采样 OCR 引擎，用于验证码识别
   - `aligner.py` - 字幕音轨对齐引擎，封装 alass/ffsubsync 调用、ffmpeg 依赖检测与 UTF-8 编码规整
   - `notifier.py` - 飞书自定义机器人通知（支持加签 secret），发送失败仅记录日志
+  - `jellyfin.py` - Jellyfin API 客户端，拉取用户未观看索引（`UnwatchedIndex`），供批量补全排序使用；认证统一走 `Authorization: MediaBrowser Token="..."` 请求头（兼容 Jellyfin 12+），失败仅记录日志并返回 None
   - `config.py` - 配置管理
 - **`app/db/`** - SQLModel 数据库模型与会话管理
 - **`app/services/`** - Service 服务层（MediaService、TaskService、SearchService、SystemService、SchedulerService）
@@ -114,7 +115,7 @@ Swagger 文档：`http://127.0.0.1:8000/docs`
 - `/media` - 媒体库管理（路径、文件、自动匹配、字幕音轨对齐与还原、对齐状态检查、`/subtitle-summary` 按文件汇总对齐状态与字幕语言供卡片墙展示）
 - `/search` - 字幕搜索（带 SQLite 缓存）
 - `/tasks` - 任务管理（创建、重试、清理已完成）
-- `/settings` - 系统配置
+- `/settings` - 系统配置（含 `POST /settings/jellyfin/test` Jellyfin 连接测试）
 - `/system` - 系统统计与日志
 - `/schedule` - 定时任务（状态查询、立即执行一次、飞书测试通知）
 - `/health` - 健康检查
@@ -140,8 +141,10 @@ python -m app.mcp.run_stdio
 - 剧集级批量对齐：剧集详情面板的「全剧音轨对齐」按钮调用 `POST /media/series/align-subtitles`（body/query: `title`），后台对整部剧所有集的全部关联字幕顺序执行对齐（单条失败不中断，自动备份 .orig）；任务状态通过 `/media/task-status` 的 `aligning_series`（剧集标题列表）与 `aligning_files`（文件 ID 列表）暴露，前端轮询展示「对齐中」状态（卡片墙左上角 tag 旋转）
 - 对齐资源守卫：alass/ffsubsync 以 `nice -n 10` 低优先级运行；所有对齐类操作（单文件对齐、对齐检查、任务对齐、剧集批量对齐）执行前通过 `app/core/system_load.py` 检查系统负载（load1/核数 ≥ 1.0 或可用内存 < 10% 判定繁忙），繁忙时 API 返回 503、MCP 返回错误提示；下载后自动对齐在系统繁忙时直接跳过；MCP 工具 `align_subtitle` / `check_subtitle_alignment` 及各 API body 均支持 `force` 参数（默认 false）跳过守卫；批量入口守卫一次，批量中途不再重复检查
 - 自动匹配搜索词按优先级回退：NFO 元数据（nfo_title → nfo_original_title → nfo_aliases）优先，最后回退到目录名提取的 extracted_title（`build_search_queries`），第一个有搜索结果的词即被采用
-- 定时扫描补字幕：设置项 `schedule_enabled` / `schedule_cron`（默认每天 03:00），触发后先刷新媒体库，再对缺字幕的作品顺序补全（间隔 2s）；`schedule_max_works_per_run`（默认 1，0 表示不限）限制每次运行补全的作品数量，优先选取能检索到 NFO 元数据（nfo_title / nfo_original_title）的作品，其次按缺字幕文件数降序、标题升序兜底；完成后可按 `feishu_notify_enabled` / `feishu_webhook_url` / `feishu_webhook_secret`（加签可选）推送飞书汇总通知（含本次补全作品与剩余待补数）；前端系统设置页有专属配置卡片，支持立即执行与发送测试通知
+- 定时扫描补字幕：设置项 `schedule_enabled` / `schedule_cron`（默认每天 03:00），触发后先刷新媒体库，再对缺字幕的作品顺序补全（间隔 2s）；`schedule_max_works_per_run`（默认 1，0 表示不限）限制每次运行补全的作品数量，作品优先级为：Jellyfin 未观看作品（启用 Jellyfin 联动且拉取成功时）→ 能检索到 NFO 元数据（nfo_title / nfo_original_title）的作品 → 按缺字幕文件数降序、标题升序兜底；完成后可按 `feishu_notify_enabled` / `feishu_webhook_url` / `feishu_webhook_secret`（加签可选）推送飞书汇总通知（含本次补全作品与剩余待补数）；前端系统设置页有专属配置卡片，支持立即执行与发送测试通知
+- Jellyfin 联动：设置项 `jellyfin_enabled` / `jellyfin_base_url` / `jellyfin_api_key` / `jellyfin_user_id`（32 位 GUID，留空自动使用首个用户）；启用后批量补全（`LibraryMatchWorkflow`）优先处理 Jellyfin 中未观看的作品（按规范化标题匹配，剧集用 SeriesName、电影用 Name）；`POST /settings/jellyfin/test` 可测试连接与用户解析；拉取失败自动回退原优先级，不影响主流程
 - 「允许无字幕」作品标记：电影/剧集详情面板的开关调用 `POST /media/works/allow-no-subtitle`（body: `media_type`, `title`, `allow`），按作品下全部文件置位 `ScannedFile.allow_no_subtitle`；批量补全（`LibraryMatchWorkflow`）与季补全（`SeasonMatchWorkflow`）跳过已标记文件，媒体扫描时新发现文件自动继承同作品（类型 + 规范化标题）标记；前端卡片墙显示「无需字幕」徽标且不计入缺字幕筛选/统计，手动单文件匹配不受影响
+- 扫描清理守卫：媒体根目录不可访问（挂载缺失、磁盘未挂载等）时，`MediaScanPipeline` 跳过该路径的扫描与全部记录清理（`cleanup_missing_files` 与发现清理均不生效），仅记录 warning，防止挂载异常导致记录被批量误删
 - 修改代码后，按照需要修订文档；有功能修改需要看是否修改、添加对应的单元测试
 
 ## Docker 与 Compose 约定
@@ -156,7 +159,7 @@ python -m app.mcp.run_stdio
 - 生产和测试环境变量分别参考 `.env.production.example` 与 `.env.test.example`
 - 媒体库目录应通过 Compose `volumes` 挂载到容器内；在应用中配置媒体路径时，应填写容器内路径而不是宿主机原始路径
 - 音轨对齐依赖：镜像内置 `ffmpeg`（apk）与 `alass` 静态二进制（`docker/binaries/alass`，v2.0.0，x86_64）；升级 alass 时直接替换该二进制文件。其他架构可通过环境变量 `ZIMUKU_ALASS_PATH` / `ZIMUKU_FFMPEG_PATH` 指定外部工具路径
-- RAR 解压依赖：镜像内置 `7zip`（apk，提供 7zz 作为 rarfile 后端）；本地开发环境如需真实解压 RAR 需自行安装 unrar/unar/bsdtar/7z 之一
+- RAR 解压依赖：镜像内置 `libarchive-tools`（apk，提供 bsdtar），`ArchiveManager._extract_rar` 直接以子进程调用（rarfile 库对 7zz/bsdtar 后端的输出解析不可靠，且 Alpine 的 7zip 未编译 RAR 支持）；本地开发环境如需真实解压 RAR 需自行安装 bsdtar
 - 修改 Dockerfile、Compose 文件或环境模板后，至少执行以下校验：
   - `docker compose config`
   - 相关镜像的 `docker compose build` 或 `docker build --target ...`

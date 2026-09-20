@@ -1,11 +1,12 @@
 from fastapi import APIRouter
 
 from ..core.config import SettingKey
+from ..core.jellyfin import JellyfinClient
 from ..db.models import Setting
 from ..services.scheduler_service import scheduler_service
 from ..services.settings_service import SettingsService
 from .errors import raise_for_service_error
-from .schemas import SettingUpdateRequest
+from .schemas import JellyfinTestResponse, SettingUpdateRequest
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
 
@@ -30,3 +31,10 @@ async def update_setting(update: SettingUpdateRequest):
         scheduler_service.reload()
 
     return setting
+
+
+@router.post("/jellyfin/test", response_model=JellyfinTestResponse)
+async def test_jellyfin_connection() -> JellyfinTestResponse:
+    """测试 Jellyfin 服务器连接与用户解析"""
+    connected, message = await JellyfinClient().test_connection()
+    return JellyfinTestResponse(message=message, connected=connected)

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlmodel import Session, delete
 
+from app.core.jellyfin import UnwatchedIndex
 from app.db.models import MediaPath, ScannedFile, SubtitleTask
 from app.db.session import create_db_and_tables, engine, session_scope
 from app.services.auto_match_workflow import (
@@ -195,6 +196,57 @@ async def test_auto_match_tries_extracted_title_when_nfo_queries_miss(monkeypatc
 
     assert matched is True
     assert searched_queries == ["不存在的名字", "ModernFamily"]
+
+
+@pytest.mark.anyio
+async def test_auto_match_continues_after_corrupt_archive(monkeypatch, tmp_path):
+    """下载到损坏的压缩包时应跳过该候选继续重试，而不是整个文件匹配失败。"""
+    video_path = tmp_path / "Show" / "Show.S01E02.mkv"
+    video_path.parent.mkdir(parents=True)
+    video_path.write_text("video", encoding="utf-8")
+
+    scanned_file = ScannedFile(
+        path_id=1,
+        type="tv",
+        file_path=str(video_path),
+        filename=video_path.name,
+        extracted_title="Show",
+        season=1,
+        episode=2,
+    )
+    with Session(engine) as session:
+        session.add(scanned_file)
+        session.commit()
+        session.refresh(scanned_file)
+
+    search_results = [SimpleNamespace(link=f"http://example.com/{index}") for index in range(2)]
+    requested_links = []
+
+    async def fake_links(link: str):
+        requested_links.append(link)
+        return [f"{link}.zip"]
+
+    async def fake_download(_links, link: str):
+        if link.endswith("/0"):
+            return "broken.zip", b"not a real zip"
+        return "Show.S01E02.chs.ass", b"subtitle"
+
+    agent = SimpleNamespace(
+        search=AsyncMock(return_value=search_results),
+        get_download_page_links=AsyncMock(side_effect=fake_links),
+        download_file=AsyncMock(side_effect=fake_download),
+        close=AsyncMock(return_value=None),
+    )
+
+    monkeypatch.setattr("app.services.auto_match_workflow.ZimukuAgent", lambda: agent)
+    monkeypatch.setattr("app.services.auto_match_workflow.get_temp_path", lambda: str(tmp_path / "storage" / "tmp"))
+
+    service = AutoMatchWorkflow(session_factory=session_scope)
+    matched = await service.run_for_file(scanned_file.id)
+
+    assert matched is True
+    assert requested_links == ["http://example.com/0", "http://example.com/1"]
+    assert (video_path.parent / "Show.S01E02.ass").exists()
 
 
 @pytest.mark.anyio
@@ -402,6 +454,46 @@ async def test_library_match_prioritizes_works_with_nfo_metadata():
 
     # 虽然 Big Show 缺口更大，但 Nfo Show 有 NFO 元数据，应优先处理
     assert stats.titles == ["Nfo Show"]
+    assert stats.total == 1
+    assert stats.remaining_works == 1
+
+
+@pytest.mark.anyio
+async def test_library_match_prioritizes_unwatched_works_over_nfo():
+    with Session(engine) as session:
+        for index in range(3):
+            session.add(
+                ScannedFile(
+                    path_id=1,
+                    type="tv",
+                    file_path=f"/library/BigShow.S01E0{index}.mkv",
+                    filename=f"BigShow.S01E0{index}.mkv",
+                    extracted_title="Big Show",
+                    nfo_title="Big Show NFO",
+                    has_subtitle=False,
+                )
+            )
+        session.commit()
+        _add_pending(session, "Fresh Show (2024)", "FreshShow.S01E01.mkv")
+
+    async def fake_auto_match(file_id: int):
+        return True
+
+    async def fake_sleep(seconds: float):
+        return None
+
+    service = LibraryMatchWorkflow(
+        session_factory=session_scope,
+        auto_match_runner=fake_auto_match,
+        sleep_func=fake_sleep,
+        max_works=1,
+        unwatched=UnwatchedIndex(titles={"fresh show"}, item_count=1),
+    )
+
+    stats = await service.run()
+
+    # 虽然 Big Show 缺口更大且有 NFO 元数据，但 Fresh Show 未观看，应最优先
+    assert stats.titles == ["Fresh Show"]
     assert stats.total == 1
     assert stats.remaining_works == 1
 

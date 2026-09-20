@@ -10,6 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlmodel import func, select
 
 from ..core.config import ConfigManager, SettingKey
+from ..core.jellyfin import JellyfinClient
 from ..core.notifier import FeishuNotifier, ScheduledJobStats
 from ..db.models import ScannedFile
 from ..db.session import session_scope
@@ -146,10 +147,14 @@ class SchedulerService:
         await MediaService.run_media_scan_and_match(None)
         stats.scanned_files = self._count_scanned_files()
 
+        # 启用 Jellyfin 联动时拉取未观看索引（失败返回 None，自动回退原优先级）
+        unwatched = await JellyfinClient().fetch_unwatched()
+
         workflow = LibraryMatchWorkflow(
             session_factory=session_scope,
             auto_match_runner=MediaService.run_auto_match_process,
             max_works=ConfigManager.get_int(SettingKey.SCHEDULE_MAX_WORKS_PER_RUN, 1),
+            unwatched=unwatched,
         )
         batch_stats: BatchMatchStats = await workflow.run()
         stats.missing_subtitle = batch_stats.total

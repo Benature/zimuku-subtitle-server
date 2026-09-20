@@ -108,7 +108,15 @@
       "feishuSecret": "加签密钥（可选）",
       "feishuSecretPlaceholder": "机器人开启加签时填写",
       "feishuTest": "发送测试通知",
-      "feishuTestSending": "发送中…"
+      "feishuTestSending": "发送中…",
+      "jellyfinTitle": "Jellyfin 联动",
+      "jellyfinDescription": "批量补字幕时优先处理 Jellyfin 中尚未观看的作品",
+      "jellyfinEnabled": "启用 Jellyfin 联动",
+      "jellyfinBaseUrlPlaceholder": "http://192.168.1.10:8096",
+      "jellyfinApiKeyPlaceholder": "Jellyfin 控制台 → API 密钥",
+      "jellyfinUserIdPlaceholder": "用户 ID（32 位 GUID，留空自动取首个用户）",
+      "jellyfinTest": "测试连接",
+      "jellyfinTesting": "测试中…"
     }
   },
   "home": {

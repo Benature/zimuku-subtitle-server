@@ -12,6 +12,7 @@ from sqlmodel import Session, col, or_, select
 
 from ..core.archive import ArchiveManager
 from ..core.config import get_temp_path
+from ..core.jellyfin import UnwatchedIndex
 from ..core.observability import log_context
 from ..core.scraper import ZimukuAgent
 from ..db.models import ScannedFile
@@ -166,13 +167,21 @@ class AutoMatchWorkflow:
 
                 for attempt_index, best_match in enumerate(results[:5]):
                     logger.info("尝试候选字幕 attempt=%s link=%s", attempt_index + 1, best_match.link)
-                    if await self._try_candidate(
-                        agent=agent,
-                        file_id=file_id,
-                        file_context=file_context,
-                        match_link=best_match.link,
-                        attempt_index=attempt_index,
-                    ):
+                    try:
+                        matched = await self._try_candidate(
+                            agent=agent,
+                            file_id=file_id,
+                            file_context=file_context,
+                            match_link=best_match.link,
+                            attempt_index=attempt_index,
+                        )
+                    except Exception as exc:
+                        # 单个候选处理失败（如下载到损坏压缩包）不应中断后续候选重试
+                        logger.warning(
+                            "候选字幕处理异常 attempt=%s link=%s: %s", attempt_index + 1, best_match.link, exc
+                        )
+                        continue
+                    if matched:
                         logger.info("成功为 %s 匹配字幕", file_context.filename)
                         return True
 
@@ -338,8 +347,9 @@ class SeasonMatchWorkflow:
 class LibraryMatchWorkflow:
     """全库批量补全：对缺失字幕的作品（剧集/电影）执行自动匹配。
 
-    按 ``max_works`` 限制每次运行处理的作品数量（有 NFO 元数据的作品优先，
-    其次按缺字幕文件数降序、标题升序兜底，0 表示不限），避免单次运行请求过多导致封禁。
+    按 ``max_works`` 限制每次运行处理的作品数量（0 表示不限），避免单次运行请求过多导致封禁。
+    作品优先级：Jellyfin 未观看的作品最优先（需启用 Jellyfin 联动且拉取成功），
+    其次是有 NFO 元数据的作品，最后按缺字幕文件数降序、标题升序兜底。
     """
 
     def __init__(
@@ -348,11 +358,13 @@ class LibraryMatchWorkflow:
         auto_match_runner: Callable[[int], Awaitable[bool]],
         sleep_func: Callable[[float], Awaitable[None]] = asyncio.sleep,
         max_works: int = 0,
+        unwatched: Optional[UnwatchedIndex] = None,
     ):
         self._session_factory = session_factory
         self._auto_match_runner = auto_match_runner
         self._sleep = sleep_func
         self._max_works = max_works
+        self._unwatched = unwatched
 
     def load_pending_files(self) -> List[tuple[int, str]]:
         with self._session_factory() as session:
@@ -387,13 +399,31 @@ class LibraryMatchWorkflow:
                 nfo_titles.add(title)
         return groups, nfo_titles
 
+    def _unwatched_titles(self, groups: dict[str, List[tuple[int, str]]]) -> set[str]:
+        """返回命中 Jellyfin 未观看索引的作品标题集合（未启用/拉取失败时为空）。"""
+        if not self._unwatched:
+            return set()
+        return {title for title in groups if self._unwatched.matches(title)}
+
     def select_works(
         self,
         groups: dict[str, List[tuple[int, str]]],
         nfo_titles: set[str],
     ) -> tuple[List[tuple[str, List]], int]:
-        """按 NFO 元数据优先、缺字幕文件数降序（标题升序兜底）选择本次运行的作品，返回 (选中项, 剩余作品数)。"""
-        ordered = sorted(groups.items(), key=lambda item: (item[0] not in nfo_titles, -len(item[1]), item[0]))
+        """按 Jellyfin 未观看优先 → NFO 元数据优先 → 缺字幕文件数降序（标题升序兜底）选择本次运行的作品，
+        返回 (选中项, 剩余作品数)。"""
+        unwatched_titles = self._unwatched_titles(groups)
+        if unwatched_titles:
+            logger.info("Jellyfin 未观看作品优先补全: %s", sorted(unwatched_titles))
+        ordered = sorted(
+            groups.items(),
+            key=lambda item: (
+                item[0] not in unwatched_titles,
+                item[0] not in nfo_titles,
+                -len(item[1]),
+                item[0],
+            ),
+        )
         if self._max_works <= 0:
             return ordered, 0
         return ordered[: self._max_works], max(0, len(ordered) - self._max_works)
