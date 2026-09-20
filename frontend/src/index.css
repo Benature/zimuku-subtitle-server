@@ -1,3 +1,10 @@
+/*
+ * Material Symbols 必须通过 layer() 引入：
+ * Google 官方样式表为 .material-symbols-outlined 设置了未分层的 font-size: 24px，
+ * 未分层样式优先级高于 Tailwind v4 的 @layer utilities，会导致图标上的 text-* 字号类全部失效。
+ * 放入 googlefonts 层（在 utilities 之前声明）后，text-* 类可正常覆盖；未指定字号的图标仍回落到默认 24px。
+ */
+@import url("https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap") layer(googlefonts);
 @import "tailwindcss";
 
 @theme {
