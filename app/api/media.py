@@ -10,7 +10,7 @@ from ..db.session import get_session
 from ..services.media_service import MediaService, global_task_status
 from ..services.metadata_service import MetadataService
 from ..services.subtitle_align_service import SubtitleAlignService
-from ..services.subtitle_inspection_service import SubtitleInspectionService, get_subtitle_summary
+from ..services.subtitle_inspection_service import SubtitleInspectionService, get_subtitle_summary_cached
 from ..services.subtitle_trash_service import SubtitleTrashService
 from ..services.task_service import TaskService
 from .errors import raise_for_service_error
@@ -117,12 +117,16 @@ async def list_scanned_files(
 
 
 @router.get("/subtitle-summary", response_model=dict[int, SubtitleSummaryResponse])
-async def get_media_subtitle_summary(
+def get_media_subtitle_summary(
     media_type: Literal["movie", "tv"] = Query(default="tv"),
     session: Session = Depends(get_session),
 ) -> dict[int, SubtitleSummaryResponse]:
-    """按媒体文件汇总字幕信息（对齐状态 + 语言列表，{file_id: summary}），供卡片墙展示。"""
-    summary = get_subtitle_summary(session, media_type)
+    """按媒体文件汇总字幕信息（对齐状态 + 语言列表，{file_id: summary}），供卡片墙展示。
+
+    全量统计涉及磁盘遍历与字幕内容分析，慢时可达十几秒；声明为同步 def 让
+    FastAPI 在线程池中执行，避免阻塞事件循环导致全站接口卡死。
+    """
+    summary = get_subtitle_summary_cached(session, media_type)
     return {file_id: SubtitleSummaryResponse(**info.to_dict()) for file_id, info in summary.items()}
 
 

@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,10 @@ from app.mcp.server import handle_call_tool, handle_list_tools
 from app.services.subtitle_inspection_service import (
     SubtitleInspectionService,
     SubtitleInvalidRequestError,
+    compute_file_signature,
     get_subtitle_summary,
+    get_subtitle_summary_cached,
+    invalidate_subtitle_summary_cache,
     record_alignment_result,
 )
 
@@ -22,12 +26,14 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def clean_records():
     create_db_and_tables()
+    invalidate_subtitle_summary_cache()
     with Session(engine) as session:
         session.exec(delete(ScannedFile))
         session.exec(delete(MediaPath))
         session.exec(delete(SubtitleAlignmentState))
         session.commit()
     yield
+    invalidate_subtitle_summary_cache()
     with Session(engine) as session:
         session.exec(delete(ScannedFile))
         session.exec(delete(MediaPath))
@@ -350,6 +356,42 @@ def test_subtitle_summary_api(tmp_path: Path):
     resp_movie = client.get("/media/subtitle-summary", params={"media_type": "movie"})
     assert resp_movie.status_code == 200
     assert resp_movie.json() == {}
+
+
+def test_subtitle_summary_cached_ttl_and_invalidation(tmp_path: Path):
+    """缓存版汇总：TTL 内返回缓存；对齐状态写入时主动失效并重新计算。"""
+    file_id, video_file = _setup_media_and_subtitles(tmp_path)
+    sub_path = video_file.parent / "Common.Side.Effects.S01E01.zh-CN-en.ass"
+
+    with Session(engine) as session:
+        first = get_subtitle_summary_cached(session, "tv")
+    assert first[file_id].alignment_status == "unknown"
+
+    # 绕过 record_alignment_result 直接写库（不触发缓存失效），TTL 内应仍返回旧缓存
+    size_bytes, mtime_ns = compute_file_signature(sub_path)
+    with Session(engine) as session:
+        session.add(
+            SubtitleAlignmentState(
+                subtitle_path=str(sub_path),
+                file_id=file_id,
+                status="aligned",
+                size_bytes=size_bytes,
+                mtime_ns=mtime_ns,
+                checked_at=datetime.now(),
+                updated_at=datetime.now(),
+            )
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        cached = get_subtitle_summary_cached(session, "tv")
+    assert cached[file_id].alignment_status == "unknown"
+
+    # 通过对齐结果写入接口更新状态 → 主动失效缓存 → 重新计算得到最新状态
+    record_alignment_result(str(sub_path), file_id, "misaligned")
+    with Session(engine) as session:
+        fresh = get_subtitle_summary_cached(session, "tv")
+    assert fresh[file_id].alignment_status == "misaligned"
 
 
 @pytest.mark.anyio

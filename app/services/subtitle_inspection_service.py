@@ -1,3 +1,5 @@
+import threading
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -148,6 +150,35 @@ def get_subtitle_summary(session: Session, media_type: str) -> dict[int, Subtitl
     return summary
 
 
+# 字幕汇总卡片墙缓存：全量统计需要遍历媒体目录并对每个字幕做内容分析，
+# 在网络存储 / 高负载下单次可达十几秒。60s TTL + 对齐状态写入时主动失效，
+# 避免前端轮询反复触发全量扫描拖垮服务。
+SUMMARY_CACHE_TTL_SECONDS = 60.0
+_summary_cache: dict[str, tuple[float, dict[int, SubtitleSummaryInfo]]] = {}
+_summary_cache_lock = threading.Lock()
+
+
+def invalidate_subtitle_summary_cache() -> None:
+    """使字幕汇总缓存失效（对齐状态写入/重置后调用）。"""
+    with _summary_cache_lock:
+        _summary_cache.clear()
+
+
+def get_subtitle_summary_cached(session: Session, media_type: str) -> dict[int, SubtitleSummaryInfo]:
+    """带 60s TTL 的字幕汇总查询，供 API 入口使用；服务内部与测试请用 get_subtitle_summary。"""
+    now = time.monotonic()
+    with _summary_cache_lock:
+        hit = _summary_cache.get(media_type)
+        if hit is not None and now - hit[0] < SUMMARY_CACHE_TTL_SECONDS:
+            return hit[1]
+
+    result = get_subtitle_summary(session, media_type)
+
+    with _summary_cache_lock:
+        _summary_cache[media_type] = (now, result)
+    return result
+
+
 def record_alignment_result(
     subtitle_path: Path | str,
     file_id: Optional[int],
@@ -189,6 +220,7 @@ def record_alignment_result(
             record.updated_at = now
         target_session.add(record)
         target_session.commit()
+        invalidate_subtitle_summary_cache()
 
     if session is not None:
         _save(session)
@@ -207,6 +239,7 @@ def mark_alignment_unknown(subtitle_path: Path | str, session: Optional[Session]
         if record is not None:
             target_session.delete(record)
             target_session.commit()
+            invalidate_subtitle_summary_cache()
 
     if session is not None:
         _delete(session)
