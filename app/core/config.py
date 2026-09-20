@@ -23,10 +23,11 @@ class SettingKey:
     FEISHU_NOTIFY_ENABLED = "feishu_notify_enabled"
     FEISHU_WEBHOOK_URL = "feishu_webhook_url"
     FEISHU_WEBHOOK_SECRET = "feishu_webhook_secret"
-    JELLYFIN_ENABLED = "jellyfin_enabled"
-    JELLYFIN_BASE_URL = "jellyfin_base_url"
-    JELLYFIN_API_KEY = "jellyfin_api_key"
-    JELLYFIN_USER_ID = "jellyfin_user_id"
+    MEDIA_SERVER_ENABLED = "media_server_enabled"
+    MEDIA_SERVER_TYPE = "media_server_type"
+    MEDIA_SERVER_BASE_URL = "media_server_base_url"
+    MEDIA_SERVER_API_KEY = "media_server_api_key"
+    MEDIA_SERVER_USER_ID = "media_server_user_id"
     DOWNLOAD_PATH = "download_path"
     TEMP_PATH = "temp_path"
     EXTRACTED_PATH = "extracted_path"
@@ -113,26 +114,31 @@ SETTINGS_DEFINITIONS = {
         default="",
         description="飞书机器人加签密钥（机器人未开启加签则留空）",
     ),
-    SettingKey.JELLYFIN_ENABLED: SettingDefinition(
-        key=SettingKey.JELLYFIN_ENABLED,
+    SettingKey.MEDIA_SERVER_ENABLED: SettingDefinition(
+        key=SettingKey.MEDIA_SERVER_ENABLED,
         default="false",
-        description="启用 Jellyfin 联动：批量补字幕时优先处理尚未观看的作品",
+        description="启用媒体服务器联动：批量补字幕时优先处理尚未观看的作品",
         kind="bool",
     ),
-    SettingKey.JELLYFIN_BASE_URL: SettingDefinition(
-        key=SettingKey.JELLYFIN_BASE_URL,
-        default="",
-        description="Jellyfin 服务器地址（如 http://192.168.1.10:8096）",
+    SettingKey.MEDIA_SERVER_TYPE: SettingDefinition(
+        key=SettingKey.MEDIA_SERVER_TYPE,
+        default="jellyfin",
+        description="媒体服务器类型：jellyfin / emby / plex",
     ),
-    SettingKey.JELLYFIN_API_KEY: SettingDefinition(
-        key=SettingKey.JELLYFIN_API_KEY,
+    SettingKey.MEDIA_SERVER_BASE_URL: SettingDefinition(
+        key=SettingKey.MEDIA_SERVER_BASE_URL,
         default="",
-        description="Jellyfin API Key（仅通过 Authorization 请求头传递）",
+        description="媒体服务器地址（如 http://192.168.1.10:8096）",
     ),
-    SettingKey.JELLYFIN_USER_ID: SettingDefinition(
-        key=SettingKey.JELLYFIN_USER_ID,
+    SettingKey.MEDIA_SERVER_API_KEY: SettingDefinition(
+        key=SettingKey.MEDIA_SERVER_API_KEY,
         default="",
-        description="Jellyfin 用户 ID（32 位 GUID，留空则自动使用首个用户）",
+        description="媒体服务器 API Key / Token（仅通过请求头传递）",
+    ),
+    SettingKey.MEDIA_SERVER_USER_ID: SettingDefinition(
+        key=SettingKey.MEDIA_SERVER_USER_ID,
+        default="",
+        description="媒体服务器用户 ID（Jellyfin/Emby 的 32 位 GUID，留空自动使用首个用户；Plex 无需填写）",
     ),
 }
 
@@ -147,7 +153,7 @@ BOOL_SETTING_KEYS = {
     SettingKey.AUTO_ALIGN_AFTER_DOWNLOAD,
     SettingKey.SCHEDULE_ENABLED,
     SettingKey.FEISHU_NOTIFY_ENABLED,
-    SettingKey.JELLYFIN_ENABLED,
+    SettingKey.MEDIA_SERVER_ENABLED,
 }
 
 
@@ -373,17 +379,23 @@ class ConfigManager:
                 raise ValueError("feishu_webhook_url 必须是 http(s) 地址")
             return normalized
 
-        if key == SettingKey.JELLYFIN_BASE_URL:
+        if key == SettingKey.MEDIA_SERVER_TYPE:
+            lowered = normalized.lower()
+            if lowered not in {"jellyfin", "emby", "plex"}:
+                raise ValueError("media_server_type 必须是 jellyfin / emby / plex 之一")
+            return lowered
+
+        if key == SettingKey.MEDIA_SERVER_BASE_URL:
             if normalized and not normalized.startswith(("http://", "https://")):
-                raise ValueError("jellyfin_base_url 必须是 http(s) 地址")
+                raise ValueError("media_server_base_url 必须是 http(s) 地址")
             return normalized.rstrip("/")
 
-        if key == SettingKey.JELLYFIN_USER_ID:
+        if key == SettingKey.MEDIA_SERVER_USER_ID:
             if not normalized:
                 return ""
             compact = normalized.replace("-", "").lower()
             if len(compact) != 32 or any(char not in "0123456789abcdef" for char in compact):
-                raise ValueError("jellyfin_user_id 必须是合法的 Jellyfin 用户 GUID（32 位十六进制）")
+                raise ValueError("media_server_user_id 必须是合法的用户 GUID（32 位十六进制）")
             return compact
 
         return normalized

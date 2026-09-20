@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlmodel import Session, delete
 
-from app.core.jellyfin import UnwatchedIndex
+from app.core.mediaserver import UnwatchedIndex
 from app.db.models import MediaPath, ScannedFile, SubtitleTask
 from app.db.session import create_db_and_tables, engine, session_scope
 from app.services.auto_match_workflow import (

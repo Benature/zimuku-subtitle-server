@@ -77,7 +77,7 @@ class FeishuTestResponse(StatusResponse):
     delivered: bool
 
 
-class JellyfinTestResponse(StatusResponse):
+class MediaServerTestResponse(StatusResponse):
     message: str
     connected: bool
 

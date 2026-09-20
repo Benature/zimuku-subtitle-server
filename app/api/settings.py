@@ -1,12 +1,12 @@
 from fastapi import APIRouter
 
 from ..core.config import SettingKey
-from ..core.jellyfin import JellyfinClient
+from ..core.mediaserver import build_media_server_client
 from ..db.models import Setting
 from ..services.scheduler_service import scheduler_service
 from ..services.settings_service import SettingsService
 from .errors import raise_for_service_error
-from .schemas import JellyfinTestResponse, SettingUpdateRequest
+from .schemas import MediaServerTestResponse, SettingUpdateRequest
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
 
@@ -33,8 +33,11 @@ async def update_setting(update: SettingUpdateRequest):
     return setting
 
 
-@router.post("/jellyfin/test", response_model=JellyfinTestResponse)
-async def test_jellyfin_connection() -> JellyfinTestResponse:
-    """测试 Jellyfin 服务器连接与用户解析"""
-    connected, message = await JellyfinClient().test_connection()
-    return JellyfinTestResponse(message=message, connected=connected)
+@router.post("/media-server/test", response_model=MediaServerTestResponse)
+async def test_media_server_connection() -> MediaServerTestResponse:
+    """测试媒体服务器（Jellyfin/Emby/Plex）连接与凭据有效性"""
+    client = build_media_server_client()
+    if client is None:
+        return MediaServerTestResponse(message="媒体服务器类型配置非法", connected=False)
+    connected, message = await client.test_connection()
+    return MediaServerTestResponse(message=message, connected=connected)

@@ -4,7 +4,7 @@ import pytest
 from sqlmodel import Session, delete
 
 from app.core.config import SettingKey
-from app.core.jellyfin import UnwatchedIndex
+from app.core.mediaserver import UnwatchedIndex
 from app.core.notifier import ScheduledJobStats
 from app.db.models import MediaPath, ScannedFile, SubtitleTask
 from app.db.session import create_db_and_tables, engine
@@ -123,14 +123,16 @@ async def test_execute_pipeline_passes_unwatched_index_to_workflow(service):
             new=AsyncMock(),
         ),
         patch("app.services.scheduler_service.SchedulerService._count_scanned_files", return_value=0),
-        patch("app.services.scheduler_service.JellyfinClient") as jellyfin_cls,
+        patch(
+            "app.services.scheduler_service.fetch_unwatched_index",
+            new=AsyncMock(return_value=index),
+        ),
         patch("app.services.scheduler_service.LibraryMatchWorkflow") as workflow_cls,
         patch(
             "app.services.scheduler_service.SchedulerService._notify",
             new=AsyncMock(),
         ),
     ):
-        jellyfin_cls.return_value.fetch_unwatched = AsyncMock(return_value=index)
         workflow_cls.return_value.run = AsyncMock(return_value=BatchMatchStats())
         await service._execute_pipeline()
 

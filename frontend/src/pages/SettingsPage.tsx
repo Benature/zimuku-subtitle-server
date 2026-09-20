@@ -9,7 +9,7 @@ import {
   useAddMediaPathMutation,
   useDeleteMediaPathMutation,
   useFeishuTestMutation,
-  useJellyfinTestMutation,
+  useMediaServerTestMutation,
   useRunScheduleNowMutation,
   useScheduleStatusQuery,
   useSettingsQuery,
@@ -27,11 +27,14 @@ const DEDICATED_SETTING_KEYS = new Set([
   'feishu_notify_enabled',
   'feishu_webhook_url',
   'feishu_webhook_secret',
-  'jellyfin_enabled',
-  'jellyfin_base_url',
-  'jellyfin_api_key',
-  'jellyfin_user_id',
+  'media_server_enabled',
+  'media_server_type',
+  'media_server_base_url',
+  'media_server_api_key',
+  'media_server_user_id',
 ]);
+
+const MEDIA_SERVER_TYPES = ['jellyfin', 'emby', 'plex'] as const;
 
 export default function SettingsPage() {
   const { t, i18n } = useTranslation();
@@ -65,11 +68,13 @@ export default function SettingsPage() {
   const feishuEnabled = (settings.find(s => s.key === 'feishu_notify_enabled')?.value ?? 'false') === 'true';
   const feishuWebhook = settings.find(s => s.key === 'feishu_webhook_url')?.value ?? '';
   const feishuSecret = settings.find(s => s.key === 'feishu_webhook_secret')?.value ?? '';
-  const jellyfinTestMutation = useJellyfinTestMutation();
-  const jellyfinEnabled = (settings.find(s => s.key === 'jellyfin_enabled')?.value ?? 'false') === 'true';
-  const jellyfinBaseUrl = settings.find(s => s.key === 'jellyfin_base_url')?.value ?? '';
-  const jellyfinApiKey = settings.find(s => s.key === 'jellyfin_api_key')?.value ?? '';
-  const jellyfinUserId = settings.find(s => s.key === 'jellyfin_user_id')?.value ?? '';
+  const mediaServerTestMutation = useMediaServerTestMutation();
+  const mediaServerEnabled = (settings.find(s => s.key === 'media_server_enabled')?.value ?? 'false') === 'true';
+  const mediaServerType = settings.find(s => s.key === 'media_server_type')?.value ?? 'jellyfin';
+  const mediaServerBaseUrl = settings.find(s => s.key === 'media_server_base_url')?.value ?? '';
+  const mediaServerApiKey = settings.find(s => s.key === 'media_server_api_key')?.value ?? '';
+  const mediaServerUserId = settings.find(s => s.key === 'media_server_user_id')?.value ?? '';
+  const effectiveMediaServerType = formValues['media_server_type'] ?? mediaServerType;
 
   const handleToggleSetting = async (key: string, current: boolean): Promise<void> => {
     try {
@@ -106,9 +111,9 @@ export default function SettingsPage() {
     }
   };
 
-  const handleJellyfinTest = async (): Promise<void> => {
+  const handleMediaServerTest = async (): Promise<void> => {
     try {
-      const result = await jellyfinTestMutation.mutateAsync();
+      const result = await mediaServerTestMutation.mutateAsync();
       showToast(result.message, result.connected ? 'success' : 'error');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -495,20 +500,22 @@ export default function SettingsPage() {
                   tv
                 </span>
                 <div>
-                  <h3 className="font-headline font-bold text-xl text-on-surface">{t('page.settings.jellyfinTitle')}</h3>
-                  <p className="text-xs text-on-surface-variant mt-1">{t('page.settings.jellyfinDescription')}</p>
+                  <h3 className="font-headline font-bold text-xl text-on-surface">
+                    {t('page.settings.mediaServerTitle')}
+                  </h3>
+                  <p className="text-xs text-on-surface-variant mt-1">{t('page.settings.mediaServerDescription')}</p>
                 </div>
               </div>
               <button
-                onClick={() => handleToggleSetting('jellyfin_enabled', jellyfinEnabled)}
+                onClick={() => handleToggleSetting('media_server_enabled', mediaServerEnabled)}
                 className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
-                  jellyfinEnabled ? 'bg-primary' : 'bg-surface-container-highest'
+                  mediaServerEnabled ? 'bg-primary' : 'bg-surface-container-highest'
                 }`}
-                title={t('page.settings.jellyfinEnabled')}
+                title={t('page.settings.mediaServerEnabled')}
               >
                 <span
                   className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
-                    jellyfinEnabled ? 'translate-x-5' : ''
+                    mediaServerEnabled ? 'translate-x-5' : ''
                   }`}
                 />
               </button>
@@ -516,15 +523,35 @@ export default function SettingsPage() {
 
             <div className="space-y-4">
               <div className="flex items-center gap-2">
+                <select
+                  value={effectiveMediaServerType}
+                  onChange={e => setFormValues(prev => ({ ...prev, media_server_type: e.target.value }))}
+                  className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface focus:ring-1 focus:ring-primary/40 outline-none transition-all cursor-pointer"
+                >
+                  {MEDIA_SERVER_TYPES.map(type => (
+                    <option key={type} value={type}>
+                      {t(`page.settings.mediaServerType.${type}`)}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => handleSaveSetting('media_server_type')}
+                  className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
+                >
+                  {t('page.settings.save')}
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
                 <input
                   type="text"
-                  value={formValues['jellyfin_base_url'] ?? jellyfinBaseUrl}
-                  onChange={e => setFormValues(prev => ({ ...prev, jellyfin_base_url: e.target.value }))}
-                  placeholder={t('page.settings.jellyfinBaseUrlPlaceholder')}
+                  value={formValues['media_server_base_url'] ?? mediaServerBaseUrl}
+                  onChange={e => setFormValues(prev => ({ ...prev, media_server_base_url: e.target.value }))}
+                  placeholder={t('page.settings.mediaServerBaseUrlPlaceholder')}
                   className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
                 />
                 <button
-                  onClick={() => handleSaveSetting('jellyfin_base_url')}
+                  onClick={() => handleSaveSetting('media_server_base_url')}
                   className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
                 >
                   {t('page.settings.save')}
@@ -534,43 +561,45 @@ export default function SettingsPage() {
               <div className="flex items-center gap-2">
                 <input
                   type="password"
-                  value={formValues['jellyfin_api_key'] ?? jellyfinApiKey}
-                  onChange={e => setFormValues(prev => ({ ...prev, jellyfin_api_key: e.target.value }))}
-                  placeholder={t('page.settings.jellyfinApiKeyPlaceholder')}
+                  value={formValues['media_server_api_key'] ?? mediaServerApiKey}
+                  onChange={e => setFormValues(prev => ({ ...prev, media_server_api_key: e.target.value }))}
+                  placeholder={t('page.settings.mediaServerApiKeyPlaceholder')}
                   className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
                 />
                 <button
-                  onClick={() => handleSaveSetting('jellyfin_api_key')}
+                  onClick={() => handleSaveSetting('media_server_api_key')}
                   className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
                 >
                   {t('page.settings.save')}
                 </button>
               </div>
 
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={formValues['jellyfin_user_id'] ?? jellyfinUserId}
-                  onChange={e => setFormValues(prev => ({ ...prev, jellyfin_user_id: e.target.value }))}
-                  placeholder={t('page.settings.jellyfinUserIdPlaceholder')}
-                  className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
-                />
-                <button
-                  onClick={() => handleSaveSetting('jellyfin_user_id')}
-                  className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
-                >
-                  {t('page.settings.save')}
-                </button>
-              </div>
+              {effectiveMediaServerType !== 'plex' && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={formValues['media_server_user_id'] ?? mediaServerUserId}
+                    onChange={e => setFormValues(prev => ({ ...prev, media_server_user_id: e.target.value }))}
+                    placeholder={t('page.settings.mediaServerUserIdPlaceholder')}
+                    className="flex-1 bg-surface-container-lowest border-none rounded-lg p-2 text-sm text-on-surface font-mono focus:ring-1 focus:ring-primary/40 outline-none transition-all"
+                  />
+                  <button
+                    onClick={() => handleSaveSetting('media_server_user_id')}
+                    className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-lg text-sm font-bold transition-colors"
+                  >
+                    {t('page.settings.save')}
+                  </button>
+                </div>
+              )}
 
               <button
-                onClick={handleJellyfinTest}
-                disabled={jellyfinTestMutation.isPending}
+                onClick={handleMediaServerTest}
+                disabled={mediaServerTestMutation.isPending}
                 className="bg-primary/10 text-primary hover:bg-primary/20 px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
               >
-                {jellyfinTestMutation.isPending
-                  ? t('page.settings.jellyfinTesting')
-                  : t('page.settings.jellyfinTest')}
+                {mediaServerTestMutation.isPending
+                  ? t('page.settings.mediaServerTesting')
+                  : t('page.settings.mediaServerTest')}
               </button>
             </div>
           </div>

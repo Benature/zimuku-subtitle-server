@@ -14,12 +14,12 @@ export async function updateSetting(
   return postData(API_ENDPOINTS.SETTINGS, { key, value, description });
 }
 
-export interface JellyfinTestResult {
+export interface MediaServerTestResult {
   status: string;
   message: string;
   connected: boolean;
 }
 
-export async function testJellyfinConnection(): Promise<JellyfinTestResult> {
-  return postData(API_ENDPOINTS.SETTINGS_JELLYFIN_TEST);
+export async function testMediaServerConnection(): Promise<MediaServerTestResult> {
+  return postData(API_ENDPOINTS.SETTINGS_MEDIA_SERVER_TEST);
 }

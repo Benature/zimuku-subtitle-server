@@ -29,7 +29,7 @@ export const API_ENDPOINTS = {
 
   // Settings
   SETTINGS: '/settings/',
-  SETTINGS_JELLYFIN_TEST: '/settings/jellyfin/test',
+  SETTINGS_MEDIA_SERVER_TEST: '/settings/media-server/test',
 
   // Schedule
   SCHEDULE_STATUS: '/schedule/status',

@@ -5,7 +5,7 @@ import {
   type QueryClient,
   type UseQueryOptions,
 } from '@tanstack/react-query';
-import { listSettings, testJellyfinConnection, updateSetting } from '../../api';
+import { listSettings, testMediaServerConnection, updateSetting } from '../../api';
 import { queryKeys } from '../../lib/queryKeys';
 import type { Setting } from '../../types/api';
 
@@ -38,8 +38,8 @@ export function useUpdateSettingMutation() {
   });
 }
 
-export function useJellyfinTestMutation() {
+export function useMediaServerTestMutation() {
   return useMutation({
-    mutationFn: testJellyfinConnection,
+    mutationFn: testMediaServerConnection,
   });
 }

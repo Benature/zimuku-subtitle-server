@@ -109,14 +109,19 @@
       "feishuSecretPlaceholder": "Required when the bot has signature verification enabled",
       "feishuTest": "Send test notification",
       "feishuTestSending": "Sending…",
-      "jellyfinTitle": "Jellyfin Integration",
-      "jellyfinDescription": "Prioritize works not yet watched in Jellyfin during batch subtitle completion",
-      "jellyfinEnabled": "Enable Jellyfin integration",
-      "jellyfinBaseUrlPlaceholder": "http://192.168.1.10:8096",
-      "jellyfinApiKeyPlaceholder": "Jellyfin Dashboard → API Keys",
-      "jellyfinUserIdPlaceholder": "User ID (32-char GUID, empty = first user)",
-      "jellyfinTest": "Test connection",
-      "jellyfinTesting": "Testing…"
+      "mediaServerTitle": "Media Server Integration",
+      "mediaServerDescription": "Prioritize works not yet watched on your media server during batch subtitle completion",
+      "mediaServerEnabled": "Enable media server integration",
+      "mediaServerType": {
+        "jellyfin": "Jellyfin",
+        "emby": "Emby",
+        "plex": "Plex"
+      },
+      "mediaServerBaseUrlPlaceholder": "http://192.168.1.10:8096",
+      "mediaServerApiKeyPlaceholder": "API Key / X-Plex-Token",
+      "mediaServerUserIdPlaceholder": "User ID (32-char GUID, empty = first user)",
+      "mediaServerTest": "Test connection",
+      "mediaServerTesting": "Testing…"
     }
   },
   "home": {

@@ -109,14 +109,19 @@
       "feishuSecretPlaceholder": "机器人开启加签时填写",
       "feishuTest": "发送测试通知",
       "feishuTestSending": "发送中…",
-      "jellyfinTitle": "Jellyfin 联动",
-      "jellyfinDescription": "批量补字幕时优先处理 Jellyfin 中尚未观看的作品",
-      "jellyfinEnabled": "启用 Jellyfin 联动",
-      "jellyfinBaseUrlPlaceholder": "http://192.168.1.10:8096",
-      "jellyfinApiKeyPlaceholder": "Jellyfin 控制台 → API 密钥",
-      "jellyfinUserIdPlaceholder": "用户 ID（32 位 GUID，留空自动取首个用户）",
-      "jellyfinTest": "测试连接",
-      "jellyfinTesting": "测试中…"
+      "mediaServerTitle": "媒体服务器联动",
+      "mediaServerDescription": "批量补字幕时优先处理媒体服务器中尚未观看的作品",
+      "mediaServerEnabled": "启用媒体服务器联动",
+      "mediaServerType": {
+        "jellyfin": "Jellyfin",
+        "emby": "Emby",
+        "plex": "Plex"
+      },
+      "mediaServerBaseUrlPlaceholder": "http://192.168.1.10:8096",
+      "mediaServerApiKeyPlaceholder": "API Key / X-Plex-Token",
+      "mediaServerUserIdPlaceholder": "用户 ID（32 位 GUID，留空自动取首个用户）",
+      "mediaServerTest": "测试连接",
+      "mediaServerTesting": "测试中…"
     }
   },
   "home": {

@@ -12,7 +12,7 @@ from sqlmodel import Session, col, or_, select
 
 from ..core.archive import ArchiveManager
 from ..core.config import get_temp_path
-from ..core.jellyfin import UnwatchedIndex
+from ..core.mediaserver import UnwatchedIndex
 from ..core.observability import log_context
 from ..core.scraper import ZimukuAgent
 from ..db.models import ScannedFile
@@ -348,7 +348,7 @@ class LibraryMatchWorkflow:
     """全库批量补全：对缺失字幕的作品（剧集/电影）执行自动匹配。
 
     按 ``max_works`` 限制每次运行处理的作品数量（0 表示不限），避免单次运行请求过多导致封禁。
-    作品优先级：Jellyfin 未观看的作品最优先（需启用 Jellyfin 联动且拉取成功），
+    作品优先级：媒体服务器（Jellyfin/Emby/Plex）未观看的作品最优先（需启用联动且拉取成功），
     其次是有 NFO 元数据的作品，最后按缺字幕文件数降序、标题升序兜底。
     """
 
@@ -400,7 +400,7 @@ class LibraryMatchWorkflow:
         return groups, nfo_titles
 
     def _unwatched_titles(self, groups: dict[str, List[tuple[int, str]]]) -> set[str]:
-        """返回命中 Jellyfin 未观看索引的作品标题集合（未启用/拉取失败时为空）。"""
+        """返回命中媒体服务器未观看索引的作品标题集合（未启用/拉取失败时为空）。"""
         if not self._unwatched:
             return set()
         return {title for title in groups if self._unwatched.matches(title)}
@@ -410,11 +410,11 @@ class LibraryMatchWorkflow:
         groups: dict[str, List[tuple[int, str]]],
         nfo_titles: set[str],
     ) -> tuple[List[tuple[str, List]], int]:
-        """按 Jellyfin 未观看优先 → NFO 元数据优先 → 缺字幕文件数降序（标题升序兜底）选择本次运行的作品，
+        """按媒体服务器未观看优先 → NFO 元数据优先 → 缺字幕文件数降序（标题升序兜底）选择本次运行的作品，
         返回 (选中项, 剩余作品数)。"""
         unwatched_titles = self._unwatched_titles(groups)
         if unwatched_titles:
-            logger.info("Jellyfin 未观看作品优先补全: %s", sorted(unwatched_titles))
+            logger.info("媒体服务器未观看作品优先补全: %s", sorted(unwatched_titles))
         ordered = sorted(
             groups.items(),
             key=lambda item: (
