@@ -16,6 +16,17 @@ import {
   useUpdateSettingMutation,
 } from '../hooks/queries';
 
+// 已有专属卡片/开关的设置 key，不再在「系统属性」通用列表中重复展示
+const DEDICATED_SETTING_KEYS = new Set([
+  'auto_align_after_download',
+  'schedule_enabled',
+  'schedule_cron',
+  'schedule_max_works_per_run',
+  'feishu_notify_enabled',
+  'feishu_webhook_url',
+  'feishu_webhook_secret',
+]);
+
 export default function SettingsPage() {
   const { t, i18n } = useTranslation();
   const [formValues, setFormValues] = useState<Record<string, string>>({});
@@ -33,6 +44,7 @@ export default function SettingsPage() {
   const deleteMediaPathMutation = useDeleteMediaPathMutation();
   const triggerMediaMatchMutation = useTriggerMediaMatchMutation();
   const settings = settingsQuery.data ?? [];
+  const genericSettings = settings.filter(s => !DEDICATED_SETTING_KEYS.has(s.key));
   const autoAlignSetting = settings.find(s => s.key === 'auto_align_after_download');
   const autoAlignEnabled = (autoAlignSetting?.value ?? 'true') === 'true';
 
@@ -243,12 +255,12 @@ export default function SettingsPage() {
             <h3 className="font-headline font-bold text-xl text-on-surface">{t('page.settings.systemProperties')}</h3>
           </div>
           <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
-            {settings.length === 0 ? (
+            {genericSettings.length === 0 ? (
               <div className="p-4 text-center text-on-surface-variant opacity-70 text-sm">
                 {t('page.settings.noConfig')}
               </div>
             ) : (
-              settings.map(setting => (
+              genericSettings.map(setting => (
                 <div
                   key={setting.id}
                   className="p-4 rounded-xl border border-outline-variant/15 hover:bg-surface-container-highest transition-colors flex flex-col gap-3"
