@@ -31,11 +31,11 @@
 
 | 文件 | 职责 |
 |------|------|
-| `media.py` | 媒体库管理、扫描、自动匹配 |
+| `media.py` | 媒体库管理、扫描、自动匹配、已有字幕检验与内容读取、指定文件字幕直下 |
 | `search.py` | 字幕搜索（带缓存） |
-| `tasks.py` | 异步任务管理 |
+| `tasks.py` | 异步任务管理与视频文件关联创建 |
 | `settings.py` | 系统配置 CRUD |
-| `system.py` | 系统状态与日志 |
+| `system.py` | 系统状态、日志与字幕语言目录 |
 
 ### Service Layer (`app/services/`)
 
@@ -49,7 +49,9 @@
 | `search_service.py` | 搜索封装、SQLite 缓存 |
 | `settings_service.py` | 设置读写与默认值管理 |
 | `metadata_service.py` | NFO、海报与文本元数据读取 |
-| `system_service.py` | 系统统计、日志获取、运行时配置暴露 |
+| `subtitle_inspection_service.py` | 媒体已有字幕检查、对白读取清洗、字符词频统计与真实语言/双语检测 |
+| `subtitle_upload_service.py` | 字幕文件与压缩包 Base64 上传、安全解压、同名追加序号避让与媒体状态绑定 |
+| `system_service.py` | 系统统计、日志获取、运行时配置与字幕语言目录暴露 |
 
 ### Core Layer (`app/core/`)
 
@@ -59,6 +61,8 @@
 | `archive/manager.py` | ZIP/7z 解压与安全校验 |
 | `ocr.py` | 验证码识别 |
 | `config.py` | 配置管理 |
+| `subtitle_detector.py` | 文本编码探测、时间轴与样式过滤、中英字符/词频统计与双语判定算法 |
+| `subtitle_languages.py` | 系统标准化字幕语言代码定义与标签目录映射 |
 | `observability.py` | 统一日志格式与任务级关联上下文 |
 | `metadata.py` | NFO、海报、TXT 元数据抽取 |
 | `utils.py` | 媒体解析与通用辅助函数 |
@@ -88,10 +92,16 @@
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | int | 主键 |
+| file_id | int? | 外键 ScannedFile，关联具体视频文件 |
 | title | str | 字幕标题 |
 | source_url | str | 下载源 URL |
 | status | enum | pending/downloading/completed/failed |
 | file_path | str | 下载后文件路径 |
+| target_type | str? | 媒体类型 (movie / tv) |
+| season | int? | 剧集季数 |
+| episode | int? | 剧集集数 |
+| language | str? | 语言标记 |
+| error_msg | str? | 失败错误详情 |
 | created_at | datetime | 创建时间 |
 | updated_at | datetime | 更新时间 |
 

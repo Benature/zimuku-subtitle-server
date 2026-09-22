@@ -20,6 +20,8 @@
 | POST | `/media/series/align-subtitles` | 剧集级批量字幕音轨对齐（后台顺序执行，自动备份 .orig，单条失败不中断；启动前检查系统负载，繁忙返回 503） | body/query: `title`, body: `force?` |
 | POST | `/media/match` | 触发全局扫描 | `path_type?` |
 | GET | `/media/task-status` | 获取当前任务状态 | - |
+| GET | `/media/metadata/{file_id}` | 获取媒体文件 NFO 及元数据（包含海报路径、简介、别名等） | path: `file_id` |
+| GET | `/media/poster` | 获取媒体本地海报图像文件 | query: `path` |
 | GET | `/media/files/{id}/subtitles` | 查询媒体文件已有字幕及实际语言分析（双语/单语判定与对白采样） | path: `id` |
 | GET | `/media/files/{id}/subtitles/content` | 读取媒体文件已有字幕的具体文本内容与对白 | path: `id`, `filename?`, `max_lines?`, `clean_text?` |
 | POST | `/media/files/{id}/download-subtitle` | 按详情页为媒体文件下载关联字幕并自动归档 | path: `id`, body: `source_url`, `title?`, `language?` |
@@ -154,6 +156,15 @@ curl "http://127.0.0.1:8000/media/files/1/subtitles"
 
 # 读取已有字幕的内容与纯文本对白
 curl "http://127.0.0.1:8000/media/files/1/subtitles/content?clean_text=true&max_lines=50"
+
+# 为指定媒体文件直接下载字幕并归档
+curl -X POST "http://127.0.0.1:8000/media/files/1/download-subtitle" \
+  -H "Content-Type: application/json" \
+  -d '{"source_url":"https://zimuku.org/detail/123.html","language":"zh-CN"}'
+
+# 查询媒体文件元数据与海报
+curl "http://127.0.0.1:8000/media/metadata/1"
+curl "http://127.0.0.1:8000/media/poster?path=/media/movies/Avatar/poster.jpg" --output poster.jpg
 
 # 将字幕安全移入回收站（非永久删除）
 curl -X POST "http://127.0.0.1:8000/media/files/1/subtitles/trash?filename=Movie.zh-CN.srt"

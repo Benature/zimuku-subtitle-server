@@ -109,14 +109,14 @@ npm run dev
 The easiest way to get started in production:
 
 ```bash
-# Pull backend and frontend images
-docker pull cynosure159/zimuku-subtitle-server-backend:latest
-docker pull cynosure159/zimuku-subtitle-server-frontend:latest
+# 1. Copy the production environment template and customize as needed
+cp .env.production.example .env.production
+# Edit .env.production to set host storage and media paths (e.g., MEDIA_MOVIES_BIND, MEDIA_TV_BIND)
 
-# Validate compose config only
+# 2. Validate compose configuration
 docker compose config
 
-# Start with the production env template
+# 3. Pull images and start services
 docker compose --env-file .env.production up -d
 
 # Start with the test env template
@@ -145,14 +145,13 @@ docker compose up frontend
 </details>
 
 > **Notes:**
-> - Backend storage is mounted to `./storage` on the host
-> - Movie and TV libraries can be mounted read-only into `/media/movies` and `/media/tv`
-> - Backend runs as a non-root user for security
-> - Frontend proxies `/api/*` requests to the backend, and the upstream can be overridden with `BACKEND_UPSTREAM`
-> - The default production images are `cynosure159/zimuku-subtitle-server-backend:latest` and `cynosure159/zimuku-subtitle-server-frontend:latest`
+> - Backend storage is mounted to `./storage` on the host by default (stores SQLite database and logs)
+> - **Media Library Permissions**: Movie and TV libraries are mounted read-write (`rw`) by default at `/media/movies` and `/media/tv`. Subtitle download and auto-association require write permissions to place subtitle files alongside video files. If you only need scanning and matching without download, set `MEDIA_*_MOUNT_MODE` to `ro`
+> - **User Permissions**: The backend container runs as a non-root user `appuser` (`UID=1000, GID=1000`). On Linux hosts, ensure host-bound directories (like `./storage`) are readable/writable by UID 1000 (e.g., `chown -R 1000:1000 ./storage`)
+> - **Frontend Reverse Proxy**: Frontend container proxies `/api/*` requests to the backend. Keep `BACKEND_UPSTREAM` set to the internal address `http://backend:8000` within Compose; host ports are only for external browser access
+> - **Version Pinning**: The default production images use the `latest` tag. For production determinism, you can explicitly specify release versions in `.env.production` (e.g., `cynosure159/zimuku-subtitle-server-backend:1.0.4`)
 > - The develop override switches the backend to a local `develop` target build and uses `cynosure159/zimuku-subtitle-server-backend:develop` as the default tag
 > - Local Docker verification can start with `docker compose config` and `docker compose -f docker-compose.yml -f docker-compose.develop.yml config`
-> - Use `.env.production.example` / `.env.test.example` as Compose environment templates
 
 ### Docker Image Rules
 
@@ -245,7 +244,6 @@ This project uses [GitHub Actions](https://github.com/Cynosure159/zimuku-subtitl
 
 - **Backend**: install `requirements.txt` → Ruff lint & format checks → Pytest
 - **Frontend**: `npm ci` → Build → ESLint
-- **Docker**: `docker compose config` → backend image build → frontend image build
 - **Docker**: validate default/develop compose configs → build backend `runtime`/`develop` targets → build frontend image
 
 ## 📁 Project Structure

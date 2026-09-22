@@ -21,7 +21,7 @@ services:
     volumes:
       # 保留基础存储和媒体目录挂载，避免覆盖后丢失默认 volumes。
       - ${ZIMUKU_STORAGE_BIND:-./storage}:/app/storage
-      - ${MEDIA_MOVIES_BIND:-./media/movies}:/media/movies:ro
-      - ${MEDIA_TV_BIND:-./media/tv}:/media/tv:ro
+      - ${MEDIA_MOVIES_BIND:-./media/movies}:/media/movies:${MEDIA_MOVIES_MOUNT_MODE:-rw}
+      - ${MEDIA_TV_BIND:-./media/tv}:/media/tv:${MEDIA_TV_MOUNT_MODE:-rw}
       # 开发模式下额外挂载后端源码，便于调试和热重载。
       - ./app:/app/app

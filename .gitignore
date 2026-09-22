@@ -28,6 +28,7 @@ build/
 .claude/settings.local.json
 .planning/
 .DS_Store
+status-cache.json
 
 # 编辑器配置
 .vscode/

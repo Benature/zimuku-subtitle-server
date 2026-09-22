@@ -109,17 +109,17 @@ npm run dev
 生产环境推荐使用 Docker 一键部署：
 
 ```bash
-# 拉取前后端镜像
-docker pull cynosure159/zimuku-subtitle-server-backend:latest
-docker pull cynosure159/zimuku-subtitle-server-frontend:latest
+# 1. 复制生产环境变量模板并按需修改
+cp .env.production.example .env.production
+# 编辑 .env.production，配置宿主机真实存储与媒体库路径（如 MEDIA_MOVIES_BIND、MEDIA_TV_BIND）
 
-# 仅校验 compose 配置
+# 2. 校验 compose 配置
 docker compose config
 
-# 使用生产环境变量模板启动
+# 3. 拉取镜像并启动服务
 docker compose --env-file .env.production up -d
 
-# 使用测试环境变量模板启动
+# 使用测试环境变量启动
 docker compose --env-file .env.test up -d
 
 # 使用 develop 覆盖文件构建并启动开发版后端
@@ -145,14 +145,13 @@ docker compose up frontend
 </details>
 
 > **注意事项：**
-> - 后端存储挂载到宿主机的 `./storage` 目录
-> - 电影和剧集媒体库会以只读方式挂载到 `/media/movies` 和 `/media/tv`
-> - 后端以非 root 用户运行，确保安全性
-> - 前端会将 `/api/*` 请求代理到后端，并可通过 `BACKEND_UPSTREAM` 覆盖代理目标
-> - 默认生产镜像为 `cynosure159/zimuku-subtitle-server-backend:latest` 和 `cynosure159/zimuku-subtitle-server-frontend:latest`
+> - 后端存储默认挂载到宿主机的 `./storage` 目录（存放 SQLite 数据库与日志）
+> - **媒体库读写权限**：电影和剧集媒体库默认以读写（`rw`）挂载到 `/media/movies` 和 `/media/tv`。字幕下载与自动归档需要向媒体目录写入同名字幕文件；若仅用于扫描和匹配而无需下载，可将 `MEDIA_*_MOUNT_MODE` 设为 `ro`
+> - **用户权限**：后端容器以非 root 用户 `appuser`（`UID=1000, GID=1000`）运行。在 Linux 宿主机上，请确保宿主机映射目录（如 `./storage`）对 UID 1000 具有读写权限（例如 `chown -R 1000:1000 ./storage`）
+> - **前后端反向代理**：前端容器内已配置反向代理将 `/api/*` 转发到后端，在同一 Compose 网络下 `BACKEND_UPSTREAM` 应保持内部地址 `http://backend:8000`，宿主机端口仅用于外部浏览器访问
+> - **版本锁定**：默认生产镜像 tag 为 `latest`；若生产环境需要版本确定性，可在 `.env.production` 中显式指定版本 tag（例如 `cynosure159/zimuku-subtitle-server-backend:1.0.4`）
 > - develop 覆盖文件会将后端切换到本地 `develop` target 构建，并使用 `cynosure159/zimuku-subtitle-server-backend:develop` 作为默认 tag
 > - 本地验证 Docker 改动时，可先执行 `docker compose config` 和 `docker compose -f docker-compose.yml -f docker-compose.develop.yml config`
-> - 可基于 `.env.production.example` / `.env.test.example` 生成 Compose 环境变量文件
 
 ### Docker 镜像规则
 
@@ -243,7 +242,6 @@ pytest tests/test_scraper.py
 
 - **后端**：安装 `requirements.txt` → Ruff 代码检查与格式化 → Pytest 单元测试
 - **前端**：`npm ci` → 构建 → ESLint 检查
-- **Docker**：`docker compose config` → 后端镜像构建 → 前端镜像构建
 - **Docker**：校验默认/开发版 compose 配置 → 构建后端 `runtime`/`develop` 双 target → 构建前端镜像
 
 ## 📁 项目结构

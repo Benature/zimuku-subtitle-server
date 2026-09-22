@@ -56,15 +56,20 @@ npm run lint
 
 - **`app/api/`** - REST API 路由（media、search、tasks、settings、schedule、system）
 - **`app/core/`** - 核心业务逻辑
-  - `scraper.py` - Zimuku 网页爬虫，实现三层递进匹配策略（搜索页 → 季详情页 → 兜底模式）
-  - `archive.py`（`app/core/archive/`）- ZIP/7z/RAR 压缩包解压，解决文件名乱码（CP437 → GBK）；RAR 直接调用系统 bsdtar（libarchive）解压
-  - `ocr.py` - 轻量级像素采样 OCR 引擎，用于验证码识别
+  - `scraper/` - Zimuku 网页爬虫，包含请求重试、退避限速与三层递进匹配策略（搜索页 → 季详情页 → 兜底模式）
+  - `archive/` - 压缩包管理器，支持 ZIP/7z/RAR 解压安全校验与编码乱码纠正（CP437 → GBK）；RAR 直接调用系统 bsdtar（libarchive）解压
+  - `ocr/` - 轻量级像素采样 OCR 引擎，用于验证码识别
   - `aligner.py` - 字幕音轨对齐引擎，封装 alass/ffsubsync 调用、ffmpeg 依赖检测与 UTF-8 编码规整
   - `notifier.py` - 飞书自定义机器人通知（支持加签 secret），发送失败仅记录日志；配置自建应用凭据（`feishu_app_id` / `feishu_app_secret`）后，可先将封面图上传飞书换取 image_key，再以卡片消息内嵌每部作品的横屏封面，上传/卡片发送失败自动回退纯文本；测试通知在配置凭据后附带程序内置生成的 16:9 测试封面，用于验证 token → 上传 → 卡片完整链路
   - `mediaserver.py` - 媒体服务器客户端（Jellyfin/Emby/Plex），拉取用户未观看索引（`UnwatchedIndex`），供批量补全排序使用；Jellyfin 走 `Authorization: MediaBrowser Token="..."`（兼容 12+），Emby 走 `X-Emby-Token`，Plex 走 `X-Plex-Token`，均不使用 `?api_key=` 查询参数；失败仅记录日志并返回 None；`build_media_server_client` 对旧版 `jellyfin_*` 设置自动兼容回退；启动建表时 `_migrate_legacy_jellyfin_settings` 会将旧版 `jellyfin_*` 设置合并进 `media_server_*` 并删除旧键（新键已有非空值时不覆盖），避免旧键残留出现在系统属性通用列表；`fetch_backdrops(titles)` 按规范化标题拉取各作品横屏封面（Jellyfin/Emby 优先 Backdrop、缺失回退 Primary，Plex 用条目 `art`），供飞书通知内嵌封面使用
+  - `subtitle_detector.py` - 字幕编码检测、纯对白清洗与基于字符/词频采样的双语与多语言判定
+  - `subtitle_languages.py` - 标准化字幕语言代码定义与标签目录映射
+  - `metadata.py` - NFO、海报图片与本地元数据抽取
+  - `observability.py` - 统一日志格式与任务级上下文追踪
+  - `system_load.py` - 系统负载检查（对齐类操作的资源守卫）
   - `config.py` - 配置管理
 - **`app/db/`** - SQLModel 数据库模型与会话管理
-- **`app/services/`** - Service 服务层（MediaService、TaskService、SearchService、SystemService、SchedulerService）
+- **`app/services/`** - Service 服务层（MediaService、TaskService、SearchService、SystemService、SettingsService、MetadataService、SubtitleInspectionService、SubtitleUploadService、SchedulerService）
   - `scheduler_service.py` - APScheduler 定时调度（cron 触发媒体库扫描 + 全库缺失字幕批量补全 + 飞书汇总通知），随 FastAPI lifespan 启停，配置变更自动 reload
 - **`app/mcp/`** - MCP 协议服务器实现
 - **`app/main.py`** - FastAPI 应用入口
@@ -84,7 +89,7 @@ npm run lint
 
 - `Setting` - 系统配置
 - `SearchCache` - 搜索结果缓存（24小时 TTL）
-- `SubtitleTask` - 后台下载任务
+- `SubtitleTask` - 后台下载任务（支持 `file_id` 外键关联视频，以及指定类型/季/集）
 - `MediaPath` - 媒体扫描目录
 - `ScannedFile` - 已扫描的视频文件（含 `allow_no_subtitle` 作品级标记：允许无字幕的作品在批量/季补全中跳过，新扫描文件自动继承同作品标记）
 - `SubtitleTrash` - 字幕回收站记录（安全移入回收站的文件、元数据与还原状态）
@@ -112,20 +117,33 @@ npm run lint
 基础 URL：`http://127.0.0.1:8000`
 Swagger 文档：`http://127.0.0.1:8000/docs`
 
-- `/media` - 媒体库管理（路径、文件、自动匹配、字幕音轨对齐与还原、对齐状态检查、`/subtitle-summary` 按文件汇总对齐状态与字幕语言供卡片墙展示；该接口需全量遍历字幕并做内容分析，慢时可达数十秒，故声明为同步 `def` 由 FastAPI 线程池执行避免阻塞事件循环，并带 60s TTL 缓存 + 按 media_type 单飞计算（`get_subtitle_summary_cached`），对齐状态写入/重置时自动失效缓存）
+- `/media` - 媒体库管理（路径配置、扫描、聚合库查询、单文件/整季匹配、已有字幕检测分析、对白内容读取、按文件直下归档、字幕音轨对齐与还原、对齐状态检查、`/subtitle-summary` 按文件汇总对齐状态与字幕语言供卡片墙展示；该接口需全量遍历字幕并做内容分析，慢时可达数十秒，故声明为同步 `def` 由 FastAPI 线程池执行避免阻塞事件循环，并带 60s TTL 缓存 + 按 media_type 单飞计算（`get_subtitle_summary_cached`），对齐状态写入/重置时自动失效缓存）
 - `/search` - 字幕搜索（带 SQLite 缓存）
-- `/tasks` - 任务管理（创建、重试、清理已完成）
-- `/settings` - 系统配置（含 `POST /settings/media-server/test` 媒体服务器连接测试）
-- `/system` - 系统统计与日志
+- `/tasks` - 任务管理（创建、重试、清理已完成，支持 `file_id` 关联与视频绝对路径）
+- `/settings` - 系统配置 CRUD（含 `POST /settings/media-server/test` 媒体服务器连接测试）
+- `/system` - 系统统计、最近日志与标准化字幕语言目录
 - `/schedule` - 定时任务（状态查询、立即执行一次、飞书测试通知）
 - `/health` - 健康检查
 
 ## MCP 集成
 
-MCP 服务器将搜索、下载、字幕检查、音轨对齐（`align_subtitle` 手动触发、`check_subtitle_alignment` 对齐状态判定）等功能暴露为 AI 可调用的工具。运行方式：
+MCP 服务器支持 stdio 与 HTTP 两种挂载模式，为 AI 提供以下主要工具：
+- 字幕搜索与下载（支持 `file_id` 自动归档或直接传入视频路径）
+- 已有字幕检验与内容读取（真实语言检测、双语判定、纯对白文本提取）
+- Base64 字幕/压缩包上传并关联视频（`upload_subtitle_file`）
+- 标准化字幕语言目录（`list_subtitle_languages`）
+- 字幕音轨对齐（`align_subtitle` 手动触发、`check_subtitle_alignment` 对齐状态判定）
+- 媒体路径管理与扫描，单文件/整季自动匹配
+- 下载任务与系统设置管理
+
+运行方式：
 
 ```bash
+# 本地 stdio 模式
 python -m app.mcp.run_stdio
+
+# HTTP 模式（FastAPI 服务同端口暴露在 /mcp）
+uvicorn app.main:app --reload
 ```
 
 ## 开发注意事项
