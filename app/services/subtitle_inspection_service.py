@@ -156,6 +156,8 @@ def get_subtitle_summary(session: Session, media_type: str) -> dict[int, Subtitl
 SUMMARY_CACHE_TTL_SECONDS = 60.0
 _summary_cache: dict[str, tuple[float, dict[int, SubtitleSummaryInfo]]] = {}
 _summary_cache_lock = threading.Lock()
+_summary_compute_locks: dict[str, threading.Lock] = {}
+_summary_compute_locks_guard = threading.Lock()
 
 
 def invalidate_subtitle_summary_cache() -> None:
@@ -165,18 +167,32 @@ def invalidate_subtitle_summary_cache() -> None:
 
 
 def get_subtitle_summary_cached(session: Session, media_type: str) -> dict[int, SubtitleSummaryInfo]:
-    """带 60s TTL 的字幕汇总查询，供 API 入口使用；服务内部与测试请用 get_subtitle_summary。"""
+    """带 60s TTL 的字幕汇总查询，供 API 入口使用；服务内部与测试请用 get_subtitle_summary。
+
+    并发未命中时按 media_type 单飞计算（双重检查锁），避免前端同时发起多个
+    请求导致重复全量磁盘扫描。
+    """
     now = time.monotonic()
     with _summary_cache_lock:
         hit = _summary_cache.get(media_type)
         if hit is not None and now - hit[0] < SUMMARY_CACHE_TTL_SECONDS:
             return hit[1]
 
-    result = get_subtitle_summary(session, media_type)
+    with _summary_compute_locks_guard:
+        compute_lock = _summary_compute_locks.setdefault(media_type, threading.Lock())
 
-    with _summary_cache_lock:
-        _summary_cache[media_type] = (now, result)
-    return result
+    with compute_lock:
+        now = time.monotonic()
+        with _summary_cache_lock:
+            hit = _summary_cache.get(media_type)
+            if hit is not None and now - hit[0] < SUMMARY_CACHE_TTL_SECONDS:
+                return hit[1]
+
+        result = get_subtitle_summary(session, media_type)
+
+        with _summary_cache_lock:
+            _summary_cache[media_type] = (now, result)
+        return result
 
 
 def record_alignment_result(

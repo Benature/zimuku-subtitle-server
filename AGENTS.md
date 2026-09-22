@@ -112,7 +112,7 @@ npm run lint
 基础 URL：`http://127.0.0.1:8000`
 Swagger 文档：`http://127.0.0.1:8000/docs`
 
-- `/media` - 媒体库管理（路径、文件、自动匹配、字幕音轨对齐与还原、对齐状态检查、`/subtitle-summary` 按文件汇总对齐状态与字幕语言供卡片墙展示）
+- `/media` - 媒体库管理（路径、文件、自动匹配、字幕音轨对齐与还原、对齐状态检查、`/subtitle-summary` 按文件汇总对齐状态与字幕语言供卡片墙展示；该接口需全量遍历字幕并做内容分析，慢时可达数十秒，故声明为同步 `def` 由 FastAPI 线程池执行避免阻塞事件循环，并带 60s TTL 缓存 + 按 media_type 单飞计算（`get_subtitle_summary_cached`），对齐状态写入/重置时自动失效缓存）
 - `/search` - 字幕搜索（带 SQLite 缓存）
 - `/tasks` - 任务管理（创建、重试、清理已完成）
 - `/settings` - 系统配置（含 `POST /settings/media-server/test` 媒体服务器连接测试）
