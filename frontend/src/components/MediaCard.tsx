@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SidebarItem } from '../types/api';
 
@@ -5,6 +6,46 @@ interface MediaCardProps {
   item: SidebarItem;
   selected: boolean;
   onSelect: (id: string) => void;
+}
+
+type PosterStatus = 'loading' | 'loaded' | 'error';
+
+// 海报占位图标：加载中（呼吸动画的 image 图标）与加载失败（broken_image 图标）区分展示
+function PosterPlaceholder({ status }: { status: PosterStatus }): React.JSX.Element {
+  if (status === 'loading') {
+    return (
+      <div className="w-full h-full flex items-center justify-center">
+        <span className="material-symbols-outlined text-4xl text-outline animate-pulse">image</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-full flex flex-col items-center justify-center gap-1">
+      <span className="material-symbols-outlined text-4xl text-outline">broken_image</span>
+    </div>
+  );
+}
+
+// 通过 key={src} 挂载，src 变化时自动重置加载状态
+function PosterImage({ src, alt }: { src: string; alt: string }): React.JSX.Element {
+  const [status, setStatus] = useState<PosterStatus>('loading');
+
+  return (
+    <>
+      {status !== 'loaded' && <PosterPlaceholder status={status} />}
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        onLoad={() => setStatus('loaded')}
+        onError={() => setStatus('error')}
+        className={`w-full h-full object-cover transition-all duration-300 group-hover:scale-105 ${
+          status === 'loaded' ? 'opacity-100' : 'absolute inset-0 opacity-0 pointer-events-none'
+        }`}
+      />
+    </>
+  );
 }
 
 export function MediaCard({ item, selected, onSelect }: MediaCardProps): React.JSX.Element {
@@ -43,14 +84,9 @@ export function MediaCard({ item, selected, onSelect }: MediaCardProps): React.J
           : 'ring-1 ring-outline-variant/10 hover:ring-primary/40 hover:shadow-lg'
       } bg-surface-container`}
     >
-      <div className="aspect-[2/3] w-full bg-surface-container-highest overflow-hidden">
+      <div className="relative aspect-[2/3] w-full bg-surface-container-highest overflow-hidden">
         {item.poster ? (
-          <img
-            src={item.poster}
-            alt={item.displayTitle}
-            loading="lazy"
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-          />
+          <PosterImage key={item.poster} src={item.poster} alt={item.displayTitle} />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <span className="material-symbols-outlined text-4xl text-outline">movie</span>
